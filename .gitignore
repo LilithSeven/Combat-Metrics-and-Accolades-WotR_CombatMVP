@@ -1,0 +1,20 @@
+# === Fichiers de compilation ===
+bin/
+obj/
+*.dll
+*.pdb
+
+# === Configurations locales IDE ===
+.vs/
+*.user
+*.suo
+*.sln.doccache
+*.userosscache
+
+# === Unity & Mod Manager artifacts ===
+*.zip
+output/
+
+# === Système et OS ===
+.DS_Store
+Thumbs.db
