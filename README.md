@@ -21,7 +21,7 @@ This mod captures every mechanical contribution of your companions, pets, and en
 
 ## ⌨️ How to Use
 
-* Open / Close UI: **`Alt + Space`** (both Left and Right Alt keys are supported).
+* Open / Close UI: **`Alt + M`**.
 * Quick Dismiss: **`Escape`** (ESC) when the scoreboard is open, or click the red **`X`** button in the top right corner.
 * Pagination: Use the **`<`** and **`>`** side buttons to navigate through each character's detailed folder.
 
@@ -29,7 +29,7 @@ This mod captures every mechanical contribution of your companions, pets, and en
 
 ## 💾 Installation
 
-1. Download the latest release `.zip` file from Nexus Mods.
+1. Download the latest release `.zip` file from Nexus Mods or from the GitHub Releases tab.
 2. Extract the archive into your game's `Mods` folder:
    `Pathfinder Wrath Of The Righteous/Mods/`
    *(Ensure the extracted folder is named `Combat Metrics & Accolades`)*
