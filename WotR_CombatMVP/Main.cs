@@ -312,6 +312,30 @@ public class UnitCombatStats
             
             var activeParty = Game.Instance.Player.PartyAndPets;
             
+            // --- SYNCHRONISATION EN TEMPS RÉEL (TOYBOX & RESPEC PROOF) ---
+            foreach (var stat in Main.Tracker.combatStats.Values)
+            {
+                if (stat.UnitData != null)
+                {
+                    try
+                    {
+                        stat.Level = stat.UnitData.Progression?.CharacterLevel ?? stat.Level;
+                        stat.CR = stat.UnitData.Blueprint?.CR ?? stat.CR;
+                        
+                        string mythicInternal;
+                        string mythic = CombatTracker.ExtractMythicPath(stat.UnitData, out mythicInternal);
+                        stat.MythicPathName = mythic;
+                        stat.MythicPathInternalName = mythicInternal;
+                        
+                        string mythicLower = mythic.ToLower();
+                        string internalLower = mythicInternal.ToLower();
+                        stat.IsEvil = mythicLower.Contains("lich") || mythicLower.Contains("demon") || mythicLower.Contains("swarm") || mythicLower.Contains("devil") || mythicLower.Contains("diable")
+                            || internalLower.Contains("lich") || internalLower.Contains("demon") || internalLower.Contains("swarm") || internalLower.Contains("devil");
+                    }
+                    catch (Exception) { }
+                }
+            }
+
             // On filtre les alliés pour n'afficher que ceux qui ont réellement contribué au combat
             var allies = Main.Tracker.combatStats.Values
                 .Where(s => s.IsAlly && s.TotalScore > 0 && s.HasRealContribution && s.UnitData != null && (s.IsDominatedSheet || activeParty.Contains(s.UnitData)))
@@ -326,7 +350,6 @@ public class UnitCombatStats
 
             if (enemies.Count < 3)
             {
-                // Application du filtre sur le fallback des ennemis
                 var fallbackEnemies = Main.Tracker.combatStats.Values
                     .Where(s => !s.IsAlly && !enemies.Contains(s) && s.HasRealContribution)
                     .OrderByDescending(s => s.DamageTaken)
@@ -928,7 +951,7 @@ public class UnitCombatStats
             return unit; 
         }
 
-		private static string ExtractMythicPath(UnitEntityData unit, out string internalName)
+		public static string ExtractMythicPath(UnitEntityData unit, out string internalName)
         {
             internalName = "MythicHero";
             if (unit?.Progression == null || unit.Progression.MythicLevel == 0) 
@@ -941,10 +964,19 @@ public class UnitCombatStats
             if (mythicClasses.Count == 0)
                 return Localization.GetStringById("ui.mythic_hero") ?? "Héros Mythique";
 
-            // On cherche en priorité une classe mythique qui n'est pas l'une des deux classes génériques de départ
-            var specializedClass = mythicClasses.FirstOrDefault(cls => 
-                !cls.CharacterClass.name.Equals("MythicHeroClass", StringComparison.OrdinalIgnoreCase) &&
-                !cls.CharacterClass.name.Equals("MythicCompanionClass", StringComparison.OrdinalIgnoreCase));
+            // 1. Priorité absolue : Les voies mythiques dites "supérieures" (IsHigherMythic)
+            var higherMythic = mythicClasses.FirstOrDefault(cls => cls.CharacterClass.IsHigherMythic);
+            if (higherMythic != null)
+            {
+                internalName = higherMythic.CharacterClass.name;
+                return higherMythic.CharacterClass.LocalizedName.ToString();
+            }
+
+            // 2. Priorité secondaire : Les classes spécialisées (non génériques)
+            var specializedClass = mythicClasses.FirstOrDefault(cls => {
+                string name = (cls.CharacterClass.name ?? "").ToLower();
+                return !name.Contains("mythichero") && !name.Contains("mythiccompanion");
+            });
 
             if (specializedClass != null)
             {
@@ -952,6 +984,7 @@ public class UnitCombatStats
                 return specializedClass.CharacterClass.LocalizedName.ToString();
             }
 
+            // 3. Repli : La première classe mythique trouvée (générique)
             internalName = mythicClasses[0].CharacterClass.name;
             return mythicClasses[0].CharacterClass.LocalizedName.ToString();
         }
