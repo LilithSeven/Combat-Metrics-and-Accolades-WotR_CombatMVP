@@ -552,27 +552,7 @@ public class UnitCombatStats
             {
                 if (currentStat.IsDominatedSheet)
                 {
-                    // 1. Détection de la présence d'une Liche active au sein du groupe (alliés + familiers)
-                    bool hasLichInParty = false;
-                    try
-                    {
-                        foreach (var u in Kingmaker.Game.Instance.Player.PartyAndPets)
-                        {
-                            if (u.Progression == null) continue;
-                            foreach (var cls in u.Progression.Classes)
-                            {
-                                if (cls.CharacterClass != null && cls.CharacterClass.IsMythic && (cls.CharacterClass.name ?? "").ToLower().Contains("lich") && cls.Level > 0)
-                                {
-                                    hasLichInParty = true;
-                                    break;
-                                }
-                            }
-                            if (hasLichInParty) break;
-                        }
-                    }
-                    catch (Exception) { }
-
-                    // 2. Détection du buff technique de "Repurpose" sur la créature
+                    // 1. Détection du buff technique de servitude "Repurpose" sur la créature
                     bool hasRepurposeBuff = false;
                     try
                     {
@@ -587,7 +567,7 @@ public class UnitCombatStats
                     }
                     catch (Exception) { }
 
-                    // 3. Détection de la nature de Mort-Vivant (Undead) via le nom technique du blueprint de type
+                    // 2. Détection de la nature de Mort-Vivant (Undead)
                     bool isUndeadType = false;
                     try
                     {
@@ -610,9 +590,9 @@ public class UnitCombatStats
                     }
                     catch (Exception) { }
 
-                    // La signature d'un relevage de la Liche :
-                    // La créature est un mort-vivant, elle porte le buff de Repurpose et une Liche est dans l'équipe.
-                    if (hasRepurposeBuff && hasLichInParty && isUndeadType)
+                    // La signature absolue d'une créature réanimée par la Liche :
+                    // Elle est de type Mort-Vivant et possède le buff permanent de servitude "Repurpose".
+                    if (hasRepurposeBuff && isUndeadType)
                     {
                         displayName += Localization.GetStringById("ui.suffix.reanimated") ?? " (Réanimé)";
                     }
@@ -621,6 +601,11 @@ public class UnitCombatStats
                         displayName += Localization.GetStringById("ui.suffix.dominated") ?? " (Dominé)";
                     }
                 }
+                else
+                {
+                    displayName += Localization.GetStringById("ui.suffix.non_dominated") ?? " (Non dominé)";
+                }
+            }
                 else
                 {
                     displayName += Localization.GetStringById("ui.suffix.non_dominated") ?? " (Non dominé)";
