@@ -125,6 +125,27 @@ namespace WotR_CombatMVP
             template = template.Replace("{divineLore}", divineLore ?? "");
             template = template.Replace("{divineLoreSubject}", divineLoreSubject ?? "");
 
+            // --- INJECTIONS DYNAMIQUES NOMINATIVES ET TÉLÉMÉTRIQUES ---
+            template = template.Replace("{name}", stat.Name ?? "");
+            template = template.Replace("{damageTaken}", stat.DamageTaken.ToString());
+            template = template.Replace("{physicalDmgTaken}", stat.PhysicalDmgTaken.ToString());
+            template = template.Replace("{attacksDodged}", stat.AttacksDodged.ToString());
+            template = template.Replace("{hitsPhysicalTaken}", stat.HitsPhysicalTaken.ToString());
+            template = template.Replace("{savesFortFailed}", stat.SavesFortFailed.ToString());
+            template = template.Replace("{savesFortSucceeded}", stat.SavesFortSucceeded.ToString());
+            template = template.Replace("{savesRefFailed}", stat.SavesRefFailed.ToString());
+            template = template.Replace("{savesRefSucceeded}", stat.SavesRefSucceeded.ToString());
+            template = template.Replace("{savesWillFailed}", stat.SavesWillFailed.ToString());
+            template = template.Replace("{savesWillSucceeded}", stat.SavesWillSucceeded.ToString());
+            template = template.Replace("{spellsResistedCount}", stat.SpellsResistedCount.ToString());
+            template = template.Replace("{friendlyFireDmg}", stat.FriendlyFireDmg.ToString());
+            template = template.Replace("{overkillDmg}", stat.OverkillDmg.ToString());
+            template = template.Replace("{totalDamage}", (stat.TotalDamage + stat.SummonDamage).ToString());
+            template = template.Replace("{healingDone}", (stat.HealingDone + stat.VampiricHealing).ToString());
+            template = template.Replace("{crits}", stat.Crits.ToString());
+            template = template.Replace("{aoos}", stat.AoOs.ToString());
+
+            // Remplacements historiques pour rétrocompatibilité
             if (damage != null) template = template.Replace("{damage}", damage);
             if (kills != null) template = template.Replace("{kills}", kills);
             if (extra != null) template = template.Replace("{extra}", extra);

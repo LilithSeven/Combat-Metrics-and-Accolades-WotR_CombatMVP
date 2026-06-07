@@ -1,4 +1,5 @@
 using Kingmaker.Items;
+using Kingmaker.EntitySystem.Stats;
 using Kingmaker.Enums;
 using System;
 using System.IO; 
@@ -72,6 +73,9 @@ namespace WotR_CombatMVP
             // Initialisation des ressources de localisation (Localization/enGB.json, frFR.json, deDE.json, etc.)
             Localization.Init(ModPath);
 
+            // INITIALISATION DES PARAMÈTRES UTILISATEUR
+            SettingsManager.Init(ModPath);
+
             try
             {
                 var harmony = new Harmony(modEntry.Info.Id);
@@ -130,6 +134,21 @@ public class UnitCombatStats
         public int StatDamage = 0;
         public int NegativeLevels = 0;
         public int Kills = 0;
+		// --- MÉTRIQUES DE DÉBRIEFING ET CONSEILS TACTIQUES ---
+        public int SavesSucceeded = 0;
+        public int SavesFailed = 0;
+        public int SavesFortFailed = 0;
+        public int SavesRefFailed = 0;
+        public int SavesWillFailed = 0;
+        public int SpellsResistedCount = 0;
+        public int TimesDowned = 0;
+        
+        // --- NOUVELLES MÉTRIQUES ULTRA-CIBLÉES ---
+        public int PhysicalDmgTaken = 0;       // Dégâts physiques réels cumulés subis
+        public int HitsPhysicalTaken = 0;      // Nombre de coups physiques qui ont touché l'unité
+        public int SavesFortSucceeded = 0;     // Nombre de succès sur les JS Vigueur
+        public int SavesRefSucceeded = 0;      // Nombre de succès sur les JS Réflexes
+        public int SavesWillSucceeded = 0;      // Nombre de succès sur les JS Volonté
 		
 		public bool HasRealContribution => 
             TotalDamage > 0 || 
@@ -536,7 +555,8 @@ public class UnitCombatStats
             if (currentStat.IsAlly)
             {
                 allegiance = currentPageIndex == 0 ? $"<color={colTitle}>{Localization.GetStringById("ui.mvp")}</color>" : $"<color=#65A2C4>{Localization.GetStringById("ui.ally_squad")}</color>";
-                if (Main.Tracker != null)
+                // Masqué si l'analyse pure est active (ShowDebriefView == true)
+                if (Main.Tracker != null && !SettingsManager.Current.ShowDebriefView)
                 {
                     allegiance += $" | <color=#8C8C8C>{Localization.GetStringById("ui.group_efficiency")}</color> <color=#C4A265><b>{Main.Tracker.TeamGlobalGrade}</b></color>";
                 }
@@ -606,11 +626,7 @@ public class UnitCombatStats
                     displayName += Localization.GetStringById("ui.suffix.non_dominated") ?? " (Non dominé)";
                 }
             }
-                else
-                {
-                    displayName += Localization.GetStringById("ui.suffix.non_dominated") ?? " (Non dominé)";
-                }
-            }
+            
             GUILayout.Label($"<b><color={colText}>{displayName}</color></b>", new GUIStyle(GUI.skin.label) { fontSize = 42, richText = true });
 
             string subTitle = string.Format(Localization.GetStringById("ui.level_short") ?? "Niveau {0}", currentStat.Level);
@@ -700,8 +716,13 @@ public class UnitCombatStats
             if (specialtyKey == "SPEC_DANGER_PUBLIC") specialtyName = $"<color={colDanger}>{specialtyName}</color>";
             else if (specialtyKey == "SPEC_SPECTATEUR_VIP") specialtyName = $"<color={colSub}>{specialtyName}</color>";
             else if (specialtyKey == "SPEC_PUNCHING_BALL") specialtyName = $"<color=#8b4513>{specialtyName}</color>";
-            GUILayout.Label($"<size=20><color={colText}>{Localization.GetStringById("ui.specialty_title")}</color><color={colTitle}>{specialtyName}</color></size>", new GUIStyle(GUI.skin.label) { richText = true });
-            GUILayout.Space(20);
+            
+            // Masqué si l'analyse pure est active
+            if (!SettingsManager.Current.ShowDebriefView)
+            {
+                GUILayout.Label($"<size=20><color={colText}>{Localization.GetStringById("ui.specialty_title")}</color><color={colTitle}>{specialtyName}</color></size>", new GUIStyle(GUI.skin.label) { richText = true });
+                GUILayout.Space(20);
+            }
 
             Texture2D portraitTex = currentStat.CachedPortrait;
             if (portraitTex != null)
@@ -715,8 +736,12 @@ public class UnitCombatStats
             }
             GUILayout.Space(20);
 
-            GUILayout.Label(Localization.GetStringById("ui.operational_rank") ?? "RANG OPÉRATIONNEL", new GUIStyle(GUI.skin.label) { fontSize = 18, fontStyle = FontStyle.Bold, normal = { textColor = new Color(0.6f, 0.6f, 0.6f) } });
-            GUILayout.Label($"{currentStat.Grade}", new GUIStyle(GUI.skin.label) { fontSize = 72, fontStyle = FontStyle.Bold, normal = { textColor = GetGradeColor(currentStat.Grade) } });
+            // Masqué si l'analyse pure est active
+            if (!SettingsManager.Current.ShowDebriefView)
+            {
+                GUILayout.Label(Localization.GetStringById("ui.operational_rank") ?? "RANG OPÉRATIONNEL", new GUIStyle(GUI.skin.label) { fontSize = 18, fontStyle = FontStyle.Bold, normal = { textColor = new Color(0.6f, 0.6f, 0.6f) } });
+                GUILayout.Label($"{currentStat.Grade}", new GUIStyle(GUI.skin.label) { fontSize = 72, fontStyle = FontStyle.Bold, normal = { textColor = GetGradeColor(currentStat.Grade) } });
+            }
             GUILayout.EndVertical();
 
             // ================= ZONE DROITE (Stats Détaillées & Succès) =================
@@ -852,24 +877,80 @@ public class UnitCombatStats
             }
             GUILayout.Space(25);
 
-            string achTitleKey = currentStat.MythicPathName == (Localization.GetStringById("ui.mythic_hero") ?? "Héros Mythique") || string.IsNullOrEmpty(currentStat.MythicPathName) ? "ui.misc.heroic_ach" : "ui.misc.mythic_ach";
-            GUILayout.Label($"<color={colTitle}>{Localization.GetStringById(achTitleKey)}</color>", sectionTitleStyle);
-            GUILayout.Space(15);
-
-            var topAchievements = currentStat.Achievements.OrderByDescending(a => a.Weight).Take(15).ToList();
-            if (topAchievements.Count == 0)
+            // =========================================================
+            // ZONE DE BASCULE : ACCOLADES VS DÉBRIEFING TACTIQUE (CORRIGÉE)
+            // =========================================================
+            GUILayout.BeginHorizontal();
+            
+            // Titre dynamique de la section
+            if (!SettingsManager.Current.ShowDebriefView)
             {
-                GUILayout.Label($"<color={colSub}><i>{Localization.GetStringById("ui.misc.no_feats") ?? "Aucun fait d'armes marquant durant cet engagement."}</i></color>", detailStyle);
+                string achTitleKey = currentStat.MythicPathName == (Localization.GetStringById("ui.mythic_hero") ?? "Héros Mythique") || string.IsNullOrEmpty(currentStat.MythicPathName) ? "ui.misc.heroic_ach" : "ui.misc.mythic_ach";
+                GUILayout.Label($"<color={colTitle}>{Localization.GetStringById(achTitleKey)}</color>", sectionTitleStyle);
             }
             else
             {
-                foreach (var ach in topAchievements)
+                GUILayout.Label($"<color={colTitle}>{Localization.GetStringById("ui.debrief.section_title") ?? "ANALYSE & DÉBRIEFING TACTIQUE"}</color>", sectionTitleStyle);
+            }
+
+            // Un espacement fixe de sécurité pour garantir que le bouton reste collé au titre et visible à l'écran
+            GUILayout.Space(25);
+
+            // Bouton interactif de permutation robuste
+            string toggleBtnText = !SettingsManager.Current.ShowDebriefView 
+                ? (Localization.GetStringById("ui.debrief.toggle_to_debrief") ?? "💡 Analyse Tactique") 
+                : (Localization.GetStringById("ui.debrief.toggle_to_ach") ?? "🏆 Voir les Accolades");
+
+            // Rendu avec contraintes de taille IMGUI standard (Immunisé contre les bugs de layout)
+            if (GUILayout.Button($"<color=#E2D5B5><b>{toggleBtnText}</b></color>", GUILayout.Width(180), GUILayout.Height(30)))
+            {
+                SettingsManager.Current.ShowDebriefView = !SettingsManager.Current.ShowDebriefView;
+                SettingsManager.Save(); // Sauvegarde immédiate
+            }
+
+            GUILayout.EndHorizontal();
+            GUILayout.Space(15);
+
+            // Rendu conditionnel du contenu
+            if (!SettingsManager.Current.ShowDebriefView)
+            {
+                // --- VUE A : ACCOLADES TRADITIONNELLES ---
+                var topAchievements = currentStat.Achievements.OrderByDescending(a => a.Weight).Take(15).ToList();
+                if (topAchievements.Count == 0)
                 {
-                    GUILayout.Label($"<size=24><b><color={ColorToHex(ach.TitleColor)}>[{ach.Tier}] {ach.Title}</color></b></size>", new GUIStyle(GUI.skin.label) { richText = true });
-                    GUILayout.Label($"<size=18><color={colText}><i>\"{ach.FlavorText}\"</i></color></size>", detailStyle);
-                    GUILayout.Space(15);
+                    GUILayout.Label($"<color={colSub}><i>{Localization.GetStringById("ui.misc.no_feats") ?? "Aucun fait d'armes marquant durant cet engagement."}</i></color>", detailStyle);
+                }
+                else
+                {
+                    foreach (var ach in topAchievements)
+                    {
+                        GUILayout.Label($"<size=24><b><color={ColorToHex(ach.TitleColor)}>[{ach.Tier}] {ach.Title}</color></b></size>", new GUIStyle(GUI.skin.label) { richText = true });
+                        GUILayout.Label($"<size=18><color={colText}><i>\"{ach.FlavorText}\"</i></color></size>", detailStyle);
+                        GUILayout.Space(15);
+                    }
                 }
             }
+            else
+            {
+                // --- VUE B : DÉBRIEFING ET CONSEILS TACTIQUES ---
+                int lv = Main.Tracker != null ? Main.Tracker.currentPartyLevel : 1;
+                var adviceList = TacticalDebriefing.GenerateAdvice(currentStat, lv);
+                if (adviceList.Count == 0)
+                {
+                    string cleanPerformance = Localization.GetStringById("ui.debrief.flawless_performance") ?? "Excellente performance ! Aucun axe d'amelioration critique n'a ete releve pour ce personnage durant ce combat.";
+                    GUILayout.Label($"<color=#65A2C4><i>{cleanPerformance}</i></color>", detailStyle);
+                }
+                else
+                {
+                    foreach (var advice in adviceList)
+                    {
+                        GUILayout.Label($"<size=24><b><color={ColorToHex(advice.Color)}>[{advice.Tier}] {advice.Title}</color></b></size>", new GUIStyle(GUI.skin.label) { richText = true });
+                        GUILayout.Label($"<size=18><color={colText}>{advice.Description}</color></size>", detailStyle);
+                        GUILayout.Space(15);
+                    }
+                }
+            }
+
             GUILayout.EndScrollView();
             GUILayout.EndVertical();
             GUILayout.EndHorizontal(); 
@@ -893,7 +974,8 @@ public class UnitCombatStats
         IGlobalRulebookHandler<RuleDealDamage>, IGlobalRulebookHandler<RuleHealDamage>, 
         IGlobalRulebookHandler<RuleDealStatDamage>, IGlobalRulebookHandler<RuleAttackRoll>, 
         IGlobalRulebookHandler<RuleDrainEnergy>, IGlobalRulebookHandler<RuleCastSpell>,
-		IGlobalRulebookHandler<RuleSavingThrow>, 
+		IGlobalRulebookHandler<RuleSavingThrow>,
+		IGlobalRulebookHandler<RuleSpellResistanceCheck>, // <--- NOUVEAU CONTRAT
         IUnitBuffHandler,
         IAreaHandler // Écoute active des chargements et transitions de cartes
     {
@@ -1323,6 +1405,21 @@ public class UnitCombatStats
                 if (targetStats != null && targetStats.IsAlly) 
                 {
                     targetStats.DamageTaken += damage;
+                    
+                    // Capture ciblée des dégâts physiques reçus
+                    if (evt.DamageBundle != null)
+                    {
+                        foreach (var dv in evt.ResultList ?? new List<Kingmaker.RuleSystem.Rules.Damage.DamageValue>())
+                        {
+                            int finalForChunk = dv.FinalValue;
+                            if (finalForChunk <= 0) continue;
+                            if (dv.Source is Kingmaker.RuleSystem.Rules.Damage.PhysicalDamage)
+                            {
+                                targetStats.PhysicalDmgTaken += finalForChunk;
+                            }
+                        }
+                    }
+
                     if (evt.Initiator.IsPlayerFaction && evt.Initiator != evt.Target)
                     {
                         var initStats = GetOrAddStats(evt.Initiator, out _);
@@ -1405,9 +1502,17 @@ public class UnitCombatStats
                 }
 
                 // VALIDATION DES KILLS (Et exécution du Couloir de la Mort)
+                // VALIDATION DES KILLS (Et exécution du Couloir de la Mort)
                 if (evt.Target.HPLeft <= 0 && !deadUnitsThisCombat.Contains(evt.Target.UniqueId))
                 {
                     deadUnitsThisCombat.Add(evt.Target.UniqueId);
+                    
+                    // Si la cible qui tombe à 0 PV ou moins est un allié, on enregistre l'inconscience
+                    if (targetStats != null && targetStats.IsAlly)
+                    {
+                        targetStats.TimesDowned++;
+                    }
+
                     bool isHighDanger = evt.Target.Blueprint != null && evt.Target.Blueprint.CR >= currentPartyLevel;
                     if (isHighDanger)
                     {
@@ -1477,15 +1582,24 @@ public class UnitCombatStats
                     }
                 }
 
-                if (evt.Target != null && !evt.IsHit)
+                if (evt.Target != null)
                 {
                     var targetStats = GetOrAddStats(evt.Target, out _);
-                    if (targetStats != null && targetStats.IsAlly)
+                    if (targetStats != null)
                     {
-                        targetStats.AttacksDodged++;
+                        if (evt.IsHit)
+                        {
+                            targetStats.HitsPhysicalTaken++;
+                        }
+                        else
+                        {
+                            targetStats.AttacksDodged++;
+                        }
                     }
-                }
-            }
+				}
+			}
+            
+			
             catch (Exception ex)
             {
                 Main.Logger.Error("[CombatMVP] Erreur dans OnEventDidTrigger(RuleAttackRoll) : " + ex);
@@ -1779,6 +1893,25 @@ public class UnitCombatStats
             try
             {
                 if (!isCombatActive || evt.Initiator == null || evt.Reason?.Context == null) return;
+				// --- CAPTURE DES SÉCURITÉS POUR LE DÉBRIEFING (ALLIÉS ET ENNEMIS) ---
+                var statsSec = GetOrAddStats(evt.Initiator, out _);
+                if (statsSec != null)
+                {
+                    if (!evt.IsPassed)
+                    {
+                        statsSec.SavesFailed++;
+                        if (evt.Type == SavingThrowType.Fortitude) statsSec.SavesFortFailed++;
+                        else if (evt.Type == SavingThrowType.Reflex) statsSec.SavesRefFailed++;
+                        else if (evt.Type == SavingThrowType.Will) statsSec.SavesWillFailed++;
+                    }
+                    else
+                    {
+                        statsSec.SavesSucceeded++;
+                        if (evt.Type == SavingThrowType.Fortitude) statsSec.SavesFortSucceeded++;
+                        else if (evt.Type == SavingThrowType.Reflex) statsSec.SavesRefSucceeded++;
+                        else if (evt.Type == SavingThrowType.Will) statsSec.SavesWillSucceeded++;
+                    }
+                }
                 var victim = evt.Initiator; 
                 var attacker = evt.Reason.Context.MaybeCaster; 
                 if (attacker == null || attacker == victim || attacker.IsPlayerFaction == victim.IsPlayerFaction) return;
@@ -1853,6 +1986,30 @@ public class UnitCombatStats
             catch (Exception ex)
             {
                 Main.Logger.Error($"[CombatMVP] Erreur lors du début de déchargement de zone : {ex}");
+            }
+        }
+		
+		public void OnEventAboutToTrigger(RuleSpellResistanceCheck evt) { }
+
+        public void OnEventDidTrigger(RuleSpellResistanceCheck evt)
+        {
+            try
+            {
+                if (!isCombatActive || evt.Initiator == null || evt.Target == null) return;
+
+                // Si un membre du groupe lance un sort et qu'un ennemi y résiste via sa SR
+                if (evt.Initiator.IsPlayerFaction && !evt.Target.IsPlayerFaction && evt.IsSpellResisted)
+                {
+                    var stats = GetOrAddStats(evt.Initiator, out _);
+                    if (stats != null)
+                    {
+                        stats.SpellsResistedCount++;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Main.Logger.Error("[CombatMVP] Erreur dans OnEventDidTrigger(RuleSpellResistanceCheck) : " + ex);
             }
         }
     } // FIN DU COMBAT TRACKER

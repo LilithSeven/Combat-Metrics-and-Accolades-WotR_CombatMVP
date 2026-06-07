@@ -6,7 +6,7 @@ This mod captures every mechanical contribution of your companions, pets, and en
 
 ---
 
-## 🛠️ Key Features
+## Key Features
 
 * **Real-Time Combat Metrics**: Tracks physical damage types (slashing, piercing, bludgeoning), elemental energies, holy/unholy, precision sneak attacks, healing, and overkills (damage dealt below 0 HP).
 * **Detailed Crowd Control (CC)**: Monitors 21 distinct status conditions (prone, paralyzed, frightened, sickened, blinded, etc.) and attributes them to the correct caster.
@@ -16,10 +16,15 @@ This mod captures every mechanical contribution of your companions, pets, and en
 * **Unified Deity Lore**: Correctly resolves and displays religious alignments and deity names in combat accolades without duplicate entries.
 * **Pondrated Pet Scoring**: Evaluates animal companions and summons with a lighter weight (0.25) so they do not drag down your team's global grade.
 * **CR-Relative Threat Scaling**: Adjusts combat scores based on enemy Challenge Rating relative to your active party level, ensuring minor skirmishes do not yield legendary grades.
+* **Dynamic Display Toggle (Tactical Analysis)**: An interactive button has been added to the top of each character's detailed sheet. With a single click, you can switch from the traditional display (fun and immersive accolades) to a rigorous and educational combat analysis.
+* **Contextualized Strategic Advice (50+ Scenarios Handled)**: If a character spent the fight paralyzed, took too much physical damage due to low Armor Class (AC), wasted healing spells, or had their spells blocked by enemy Spell Resistance (SR), the mod provides a precise diagnosis and suggests actionable in-game improvements (feats, gear, or specific protective spells).
+* **Enemy "Threat Report" (Combat Autopsy)**: When viewing the record of a monster or major boss, the Tactical Analysis view transforms into a combat autopsy. It explains exactly why the enemy was so formidable and provides the tactical key to counter them in similar future encounters.
+* **Streamlined UI for Pure Stat Enthusiasts**: Activating the Tactical Analysis view instantly hides all grades, overall team scores, and subjective titles, transforming the interface into a purely statistical, neutral dashboard focused entirely on optimizing party performance.
+* **Persistent Preferences**: The mod automatically saves your latest display choice. If you prefer to play solely with neutral statistical reports, the scoreboard will open directly in this mode for all future combats (safely stored via the settings.json file).
 
 ---
 
-## ⌨️ How to Use
+## How to Use
 
 * Open / Close UI: **`Alt + M`**.
 * Quick Dismiss: **`Escape`** (ESC) when the scoreboard is open, or click the red **`X`** button in the top right corner.
@@ -27,7 +32,7 @@ This mod captures every mechanical contribution of your companions, pets, and en
 
 ---
 
-## 💾 Installation
+## Installation
 
 1. Download the latest release `.zip` file from Nexus Mods or from the GitHub Releases tab.
 2. Extract the archive into your game's `Mods` folder:
@@ -37,7 +42,7 @@ This mod captures every mechanical contribution of your companions, pets, and en
 
 ---
 
-## 📜 Permissions & License
+## Permissions & License
 
 This mod is released under a custom **Closed Permissions, Open Source** license. 
 * You are welcome to inspect, study, or decompile the source code for personal learning.
