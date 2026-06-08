@@ -24,6 +24,14 @@ This mod captures every mechanical contribution of your companions, pets, and en
 
 ---
 
+## Optional Asset Separation (Mythic Backgrounds)
+
+To keep download sizes minimal for future code updates, I have decoupled the mythic background images into a separate optional archive:
+How to Install: Extract the contents of "Combat Metrics & Accolades - Mythic Backgrounds (Assets).zip" directly into your main mod directory (next to WotR_CombatMVP.dll and Info.json).
+Customization & Custom Backgrounds: If you wish, you can completely customize the visual experience by using your own images!
+Simply place any 16:9 aspect ratio PNG image in the mod directory and rename it to match the corresponding mythic path (e.g., angel.png, demon.png, lich.png, none.png).
+To ensure that the text remain perfectly readable, I highly recommend using images with a dark, low-opacity background.
+
 ## How to Use
 
 * Open / Close UI: **`Alt + M`**.
