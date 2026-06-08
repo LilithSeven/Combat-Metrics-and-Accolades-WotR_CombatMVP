@@ -137,6 +137,8 @@ namespace WotR_CombatMVP
             template = template.Replace("{savesRefSucceeded}", stat.SavesRefSucceeded.ToString());
             template = template.Replace("{savesWillFailed}", stat.SavesWillFailed.ToString());
             template = template.Replace("{savesWillSucceeded}", stat.SavesWillSucceeded.ToString());
+			template = template.Replace("{attacksAttempted}", stat.AttacksAttempted.ToString());
+            template = template.Replace("{attacksLanded}", stat.AttacksLanded.ToString());
             template = template.Replace("{spellsResistedCount}", stat.SpellsResistedCount.ToString());
             template = template.Replace("{friendlyFireDmg}", stat.FriendlyFireDmg.ToString());
             template = template.Replace("{overkillDmg}", stat.OverkillDmg.ToString());

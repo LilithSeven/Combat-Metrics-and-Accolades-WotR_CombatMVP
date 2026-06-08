@@ -199,6 +199,23 @@ public class UnitCombatStats
         public int Crits = 0;
         public int AoOs = 0;
         public int MaxSingleHit = 0;
+		// --- NOUVELLES VARIABLES DE TÉLÉMÉTRIE OFFENSIVE & PRÉCISION ---
+        public int AttacksAttempted = 0;       // Nombre total d'attaques physiques tentées
+        public int AttacksLanded = 0;          // Nombre total d'attaques physiques ayant touché la cible
+
+        // --- REGISTRES NOMINATIFS DES JETS DE SAUVEGARDE ÉCHOUÉS ---
+        // Associe le nom de l'effet (ex: "Weird") au nombre d'échecs
+        public Dictionary<string, int> SavesFortFailedSources = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, int> SavesRefFailedSources = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, int> SavesWillFailedSources = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        // --- REGISTRE DE RÉSISTANCE MAGIQUE (SR) NOMINATIF ---
+        // Associe le nom du sort (ex: "Fireball") à la liste des ennemis qui l'ont résisté
+        public Dictionary<string, List<string>> SpellsResistedSources = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+        // --- REGISTRE DES EFFETS NÉFASTES SUBIS ---
+        // Liste unique des altérations d'états et débuffs subis par le personnage
+        public HashSet<string> SufferedDebuffs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public int SummonDamage = 0;
         public int SummonKills = 0;
 
@@ -394,7 +411,18 @@ public class UnitCombatStats
             if (stat.UnitData == null || stat.UnitData.Portrait == null) return null;
             var portrait = stat.UnitData.Portrait;
             Type type = portrait.GetType();
-            string[] possibleNames = { "HalfLengthPortrait", "HalfLengthImage", "SmallPortrait", "FullLengthPortrait", "HalfPortrait" };
+            
+            // Priorité absolue aux grands formats, puis replis successifs en cas d'absence
+            string[] possibleNames = { 
+                "FullLengthPortrait", 
+                "FullLengthImage", 
+                "HalfLengthPortrait", 
+                "HalfLengthImage", 
+                "HalfPortrait", 
+                "SmallPortrait", 
+                "SmallImage" 
+            };
+            
             foreach (var name in possibleNames)
             {
                 var prop = type.GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
@@ -472,10 +500,31 @@ public class UnitCombatStats
             float safeHeight = Screen.height - (marginY * 2);
             Rect safeArea = new Rect(marginX, marginY, safeWidth, safeHeight);
 
+            // 1. Dessin du panneau sombre de fond d'ardoise
             GUI.DrawTexture(safeArea, overlayTexture);
-            GUILayout.BeginArea(safeArea);
-            DrawBookLayout(safeWidth, safeHeight);
+
+            // 2. Initialisation des couleurs de cadre procédurales
+            Color wotrGold = HexToColor("#C4A265");
+            Color wotrDarkSlate = HexToColor("#1F1F24");
+
+            // Tracé du cadre de pierre sombre (2px externe)
+            DrawProceduralFrame(safeArea, wotrDarkSlate, 2f);
+
+            // Tracé du filet d'or interne (légèrement décalé de 5px vers l'intérieur)
+            Rect innerGoldRect = new Rect(safeArea.x + 5f, safeArea.y + 5f, safeArea.width - 10f, safeArea.height - 10f);
+            DrawProceduralFrame(innerGoldRect, wotrGold, 1f);
+
+            // Dessin des cornières ornementales d'angle sur l'incrustation dorée
+            DrawWotRCornerBrackets(innerGoldRect, wotrGold, 2f, 15f);
+
+            // 3. Définition de l'aire de contenu interne avec une marge de sécurité
+            Rect contentArea = new Rect(safeArea.x + 20f, safeArea.y + 15f, safeArea.width - 40f, safeArea.height - 30f);
+
+            // Rendu du contenu du rapport de bataille dans l'aire de contenu aérée
+            GUILayout.BeginArea(contentArea);
+            DrawBookLayout(contentArea.width, contentArea.height);
             GUILayout.EndArea();
+			
             DrawNavigationButtons();
         }
 
@@ -535,10 +584,15 @@ public class UnitCombatStats
         void DrawBookLayout(float width, float height)
         {
             UnitCombatStats currentStat = allCombatants[currentPageIndex];
-            string colTitle = "#C4A265"; 
-            string colSub = "#8C8C8C"; 
-            string colText = "#E2D5B5"; 
-            string colDanger = "#D94C4C"; 
+            string colTitle = "#C4A265";    // Muted Imperial Gold (Or officiel)
+            string colSub = "#8C8C8C";      // Stone Grey (Gris pierre / argent terni)
+            string colText = "#E2D5B5";     // Warm Parchment (Parchemin off-white)
+            string colDanger = "#9E1B1B";   // Deep Crimson (Rouge brique / Sang séché)
+            string colSlate = "#597F96";    // Muted Slate Blue (Bleu ardoise feutré)
+            string colSage = "#6D8467";     // Sage Green (Vert sauge feutré)
+            string colPlum = "#5C2B5C";     // Dark Plum (Prune sombre)
+            string colAmethyst = "#7A4F8F"; // Amethyst Purple (Améthyste pour le son/contrôle)
+            string colCopper = "#B55C25";   // Rust Orange (Orange cuivré pour le feu) 
             
             GUIStyle sectionTitleStyle = new GUIStyle(GUI.skin.label) { fontSize = 28, fontStyle = FontStyle.Bold, richText = true };
             GUIStyle statStyle = new GUIStyle(GUI.skin.label) { fontSize = 22, richText = true, margin = new RectOffset(0,0,4,4) };
@@ -554,7 +608,7 @@ public class UnitCombatStats
             string allegiance = "";
             if (currentStat.IsAlly)
             {
-                allegiance = currentPageIndex == 0 ? $"<color={colTitle}>{Localization.GetStringById("ui.mvp")}</color>" : $"<color=#65A2C4>{Localization.GetStringById("ui.ally_squad")}</color>";
+                allegiance = currentPageIndex == 0 ? $"<color={colTitle}>{Localization.GetStringById("ui.mvp")}</color>" : $"<color={colSlate}>{Localization.GetStringById("ui.ally_squad")}</color>";
                 // Masqué si l'analyse pure est active (ShowDebriefView == true)
                 if (Main.Tracker != null && !SettingsManager.Current.ShowDebriefView)
                 {
@@ -797,14 +851,14 @@ public class UnitCombatStats
             if (currentStat.SlashBludgeonDmg > 0) dmgDetails += $"{Localization.GetStringById("ui.dmg.slash_bludgeon")} ({currentStat.SlashBludgeonDmg}) | ";
             if (currentStat.PierceBludgeonDmg > 0) dmgDetails += $"{Localization.GetStringById("ui.dmg.pierce_bludgeon")} ({currentStat.PierceBludgeonDmg}) | ";
             if (currentStat.AllPhysDmg > 0) dmgDetails += $"{Localization.GetStringById("ui.dmg.all_phys")} ({currentStat.AllPhysDmg}) | ";
-            if (currentStat.FireDmg > 0) dmgDetails += $"<color=#ff6600>{Localization.GetStringById("ui.dmg.fire")} ({currentStat.FireDmg})</color> | ";
-            if (currentStat.ColdDmg > 0) dmgDetails += $"<color=#66ccff>{Localization.GetStringById("ui.dmg.cold")} ({currentStat.ColdDmg})</color> | ";
-            if (currentStat.AcidDmg > 0) dmgDetails += $"<color=#33cc33>{Localization.GetStringById("ui.dmg.acid")} ({currentStat.AcidDmg})</color> | ";
-            if (currentStat.ElectricDmg > 0) dmgDetails += $"<color=#ffff00>{Localization.GetStringById("ui.dmg.electricity")} ({currentStat.ElectricDmg})</color> | ";
-            if (currentStat.SonicDmg > 0) dmgDetails += $"<color=#cc99ff>{Localization.GetStringById("ui.dmg.sonic")} ({currentStat.SonicDmg})</color> | ";
-            if (currentStat.NegativeDmg > 0) dmgDetails += $"<color=#800080>{Localization.GetStringById("ui.dmg.negative")} ({currentStat.NegativeDmg})</color> | ";
-            if (currentStat.HolyDmg > 0) dmgDetails += $"<color=#ffff66>{Localization.GetStringById("ui.dmg.holy")} ({currentStat.HolyDmg})</color> | ";
-            if (currentStat.UnholyDmg > 0) dmgDetails += $"<color=#8b0000>{Localization.GetStringById("ui.dmg.unholy")} ({currentStat.UnholyDmg})</color> | ";
+            if (currentStat.FireDmg > 0) dmgDetails += $"<color={colCopper}>{Localization.GetStringById("ui.dmg.fire")} ({currentStat.FireDmg})</color> | ";
+            if (currentStat.ColdDmg > 0) dmgDetails += $"<color={colSlate}>{Localization.GetStringById("ui.dmg.cold")} ({currentStat.ColdDmg})</color> | ";
+            if (currentStat.AcidDmg > 0) dmgDetails += $"<color={colSage}>{Localization.GetStringById("ui.dmg.acid")} ({currentStat.AcidDmg})</color> | ";
+            if (currentStat.ElectricDmg > 0) dmgDetails += $"<color={colTitle}>{Localization.GetStringById("ui.dmg.electricity")} ({currentStat.ElectricDmg})</color> | ";
+            if (currentStat.SonicDmg > 0) dmgDetails += $"<color={colAmethyst}>{Localization.GetStringById("ui.dmg.sonic")} ({currentStat.SonicDmg})</color> | ";
+            if (currentStat.NegativeDmg > 0) dmgDetails += $"<color={colPlum}>{Localization.GetStringById("ui.dmg.negative")} ({currentStat.NegativeDmg})</color> | ";
+            if (currentStat.HolyDmg > 0) dmgDetails += $"<color={colText}>{Localization.GetStringById("ui.dmg.holy")} ({currentStat.HolyDmg})</color> | ";
+            if (currentStat.UnholyDmg > 0) dmgDetails += $"<color={colDanger}>{Localization.GetStringById("ui.dmg.unholy")} ({currentStat.UnholyDmg})</color> | ";
 
             int classifiedDamage = currentStat.SlashingDmg + currentStat.PiercingDmg + currentStat.BludgeoningDmg + 
                                    currentStat.SlashPierceDmg + currentStat.SlashBludgeonDmg + currentStat.PierceBludgeonDmg + currentStat.AllPhysDmg +
@@ -924,7 +978,8 @@ public class UnitCombatStats
                 {
                     foreach (var ach in topAchievements)
                     {
-                        GUILayout.Label($"<size=24><b><color={ColorToHex(ach.TitleColor)}>[{ach.Tier}] {ach.Title}</color></b></size>", new GUIStyle(GUI.skin.label) { richText = true });
+                        Color achColor = GetAccoladeColor(ach.Tier);
+                        GUILayout.Label($"<size=24><b><color={ColorToHex(achColor)}>[{ach.Tier}] {ach.Title}</color></b></size>", new GUIStyle(GUI.skin.label) { richText = true });
                         GUILayout.Label($"<size=18><color={colText}><i>\"{ach.FlavorText}\"</i></color></size>", detailStyle);
                         GUILayout.Space(15);
                     }
@@ -932,19 +987,127 @@ public class UnitCombatStats
             }
             else
             {
-                // --- VUE B : DÉBRIEFING ET CONSEILS TACTIQUES ---
+                // ====================================================================
+                // MODULE I : TABLEAU DE BORD DE TÉLÉMÉTRIE BRUTE PERMANENTE
+                // ====================================================================
+                GUILayout.Label($"<color={colTitle}><b>" + (Localization.GetStringById("ui.telemetry.section_title") ?? "TELEMETRIE BRUTE DU COMBAT") + "</b></color>", sectionTitleStyle);
+                GUILayout.Space(10);
+
+                GUILayout.BeginHorizontal();
+                
+                // --- COLONNE OFFENSIVE (Précision physique brute) ---
+                GUILayout.BeginVertical(GUILayout.Width(rightZoneWidth * 0.48f));
+                GUILayout.Label($"<color={colSlate}><b>" + (Localization.GetStringById("ui.telemetry.accuracy_title") ?? "PRECISION OFFENSIVE") + "</b></color>", statStyle);
+                
+                int accPct = currentStat.AttacksAttempted > 0 ? (int)Math.Round((double)currentStat.AttacksLanded * 100 / currentStat.AttacksAttempted) : 0;
+                string accTemplate = Localization.GetStringById("ui.telemetry.accuracy_rate") ?? "Précision physique : <b>{attacksLanded} / {attacksAttempted}</b> au but ({accuracy}%)";
+                string accText = accTemplate
+                    .Replace("{attacksLanded}", currentStat.AttacksLanded.ToString())
+                    .Replace("{attacksAttempted}", currentStat.AttacksAttempted.ToString())
+                    .Replace("{accuracy}", accPct.ToString());
+                GUILayout.Label($"<color={colText}>{accText}</color>", detailStyle);
+                GUILayout.EndVertical();
+
+                // --- COLONNE DÉFENSIVE (Ratio d'évitement de CA) ---
+                GUILayout.BeginVertical(GUILayout.Width(rightZoneWidth * 0.48f));
+                GUILayout.Label($"<color={colSlate}><b>" + (Localization.GetStringById("ui.telemetry.evasion_title") ?? "EVITEMENT DEFENSIF") + "</b></color>", statStyle);
+                
+                int attacksDirected = currentStat.HitsPhysicalTaken + currentStat.AttacksDodged;
+                int evaPct = attacksDirected > 0 ? (int)Math.Round((double)currentStat.AttacksDodged * 100 / attacksDirected) : 0;
+                string evaTemplate = Localization.GetStringById("ui.telemetry.evasion_rate") ?? "Taux d'évitement : <b>{attacksDodged} / {attacksDirected}</b> esquivés ({evasion}%)";
+                string evaText = evaTemplate
+                    .Replace("{attacksDodged}", currentStat.AttacksDodged.ToString())
+                    .Replace("{attacksDirected}", attacksDirected.ToString())
+                    .Replace("{evasion}", evaPct.ToString());
+                GUILayout.Label($"<color={colText}>{evaText}</color>", detailStyle);
+                GUILayout.EndVertical();
+
+                GUILayout.EndHorizontal();
+                GUILayout.Space(15);
+
+                // --- REGISTRE DES JETS DE SAUVEGARDE ÉCHOUÉS (DÉTAILLÉ ET NOMINATIF) ---
+                GUILayout.Label($"<color={colSlate}><b>" + (Localization.GetStringById("ui.telemetry.saves_breakdown") ?? "REGISTRE DES SAUVEGARDES ECHOUEES") + "</b></color>", statStyle);
+                
+                string noneLabel = Localization.GetStringById("ui.telemetry.none") ?? "Aucun";
+                string timesLabel = Localization.GetStringById("ui.telemetry.times") ?? "fois";
+
+                // Vigueur (Fortitude)
+                string fortHeader = Localization.GetStringById("ui.telemetry.saves_fort_failed") ?? "• <b>Vigueur</b> : ";
+                string fortDetails = noneLabel;
+                if (currentStat.SavesFortFailedSources.Count > 0)
+                {
+                    fortDetails = string.Join(", ", currentStat.SavesFortFailedSources.Select(kvp => $"{kvp.Key} ({kvp.Value} {timesLabel})"));
+                }
+                GUILayout.Label($"<color={colText}>{fortHeader}{fortDetails}</color>", detailStyle);
+
+                // Réflexes (Reflex)
+                string refHeader = Localization.GetStringById("ui.telemetry.saves_ref_failed") ?? "• <b>Réflexes</b> : ";
+                string refDetails = noneLabel;
+                if (currentStat.SavesRefFailedSources.Count > 0)
+                {
+                    refDetails = string.Join(", ", currentStat.SavesRefFailedSources.Select(kvp => $"{kvp.Key} ({kvp.Value} {timesLabel})"));
+                }
+                GUILayout.Label($"<color={colText}>{refHeader}{refDetails}</color>", detailStyle);
+
+                // Volonté (Will)
+                string willHeader = Localization.GetStringById("ui.telemetry.saves_will_failed") ?? "• <b>Volonté</b> : ";
+                string willDetails = noneLabel;
+                if (currentStat.SavesWillFailedSources.Count > 0)
+                {
+                    willDetails = string.Join(", ", currentStat.SavesWillFailedSources.Select(kvp => $"{kvp.Key} ({kvp.Value} {timesLabel})"));
+                }
+                GUILayout.Label($"<color={colText}>{willHeader}{willDetails}</color>", detailStyle);
+                GUILayout.Space(15);
+
+                // --- REGISTRE DES SORTS BLOQUÉS PAR LA RC ENNEMIE ---
+                GUILayout.Label($"<color={colSlate}><b>" + (Localization.GetStringById("ui.telemetry.sr_blocks") ?? "SORTS BLOQUES PAR LA RC ENNEMIE") + "</b></color>", statStyle);
+                if (currentStat.SpellsResistedSources.Count > 0)
+                {
+                    string targetSep = Localization.GetStringById("ui.telemetry.target_separator") ?? " sur ";
+                    string srDetails = string.Join("\n", currentStat.SpellsResistedSources.Select(kvp => 
+                        $"• <color={colText}>{kvp.Key}</color> ({kvp.Value.Count} {timesLabel}){targetSep}<color={colSub}>{string.Join(", ", kvp.Value)}</color>"
+                    ));
+                    GUILayout.Label(srDetails, detailStyle);
+                }
+                else
+                {
+                    GUILayout.Label($"• <color={colSub}>{noneLabel}</color>", detailStyle);
+                }
+                GUILayout.Space(15);
+
+                // --- REGISTRE DES DÉBUFFS SUBIS ---
+                GUILayout.Label($"<color={colSlate}><b>" + (Localization.GetStringById("ui.telemetry.suffered_debuffs") ?? "ALTERATIONS D'ETAT SUBIES") + "</b></color>", statStyle);
+                string debuffsText = noneLabel;
+                if (currentStat.SufferedDebuffs.Count > 0)
+                {
+                    debuffsText = string.Join(", ", currentStat.SufferedDebuffs.Select(s => $"<color={colText}>{s}</color>"));
+                }
+                GUILayout.Label($"• {debuffsText}", detailStyle);
+                GUILayout.Space(25);
+
+                // --- SÉPARATEUR DE SECTION ESTHÉTIQUE (Diviseur d'ardoise sombre) ---
+                Color savedColor = GUI.color;
+                GUI.color = HexToColor("#3A3A3F");
+                GUILayout.Box(GUIContent.none, GUILayout.Height(1), GUILayout.ExpandWidth(true));
+                GUI.color = savedColor;
+                GUILayout.Space(25);
+
+                // ====================================================================
+                // MODULE II : DIAGNOSTICS DE CRITICITÉ (QUALITATIFS EXISTANTS)
+                // ====================================================================
                 int lv = Main.Tracker != null ? Main.Tracker.currentPartyLevel : 1;
                 var adviceList = TacticalDebriefing.GenerateAdvice(currentStat, lv);
                 if (adviceList.Count == 0)
                 {
-                    string cleanPerformance = Localization.GetStringById("ui.debrief.flawless_performance") ?? "Excellente performance ! Aucun axe d'amelioration critique n'a ete releve pour ce personnage durant ce combat.";
+                    string cleanPerformance = Localization.GetStringById("ui.debrief.flawless_performance") ?? "Excellente performance ! Aucun axe d'amélioration critique n'a été relevé pour ce personnage durant ce combat.";
                     GUILayout.Label($"<color=#65A2C4><i>{cleanPerformance}</i></color>", detailStyle);
                 }
                 else
                 {
                     foreach (var advice in adviceList)
                     {
-                        GUILayout.Label($"<size=24><b><color={ColorToHex(advice.Color)}>[{advice.Tier}] {advice.Title}</color></b></size>", new GUIStyle(GUI.skin.label) { richText = true });
+                        Color adviceColor = GetDebriefColor(advice.Tier);
+                        GUILayout.Label($"<size=24><b><color={ColorToHex(adviceColor)}>[{advice.Tier}] {advice.Title}</color></b></size>", new GUIStyle(GUI.skin.label) { richText = true });
                         GUILayout.Label($"<size=18><color={colText}>{advice.Description}</color></size>", detailStyle);
                         GUILayout.Space(15);
                     }
@@ -960,13 +1123,104 @@ public class UnitCombatStats
 
         Color GetGradeColor(string grade)
         {
-            if (grade.Contains("S")) return new Color(1f, 0.8f, 0f); 
-            if (grade.Contains("A")) return new Color(0.2f, 1f, 0.2f);
-            if (grade.Contains("B")) return Color.yellow;
-            if (grade.Contains("C")) return new Color(0.8f, 0.5f, 0.2f);
-            if (grade.Contains("F")) return new Color(1f, 0.2f, 0.2f);
-            if (grade.Contains("R")) return new Color(0.58f, 0.65f, 0.75f); 
+            if (grade.Contains("S")) return HexToColor("#C4A265"); // Or impérial feutré
+            if (grade.Contains("A")) return HexToColor("#6D8467"); // Vert sauge
+            if (grade.Contains("B")) return HexToColor("#C5A059"); // Ambre / Grès chaud
+            if (grade.Contains("C")) return HexToColor("#B55C25"); // Cuivre rouillé
+            if (grade.Contains("F")) return HexToColor("#9E1B1B"); // Rouge brique / Sang séché
+            if (grade.Contains("R")) return HexToColor("#597F96"); // Bleu ardoise
             return Color.white;
+        }
+		
+		// --- UTILITAIRES DE RENDU GÉOMÉTRIQUE SÉCURISÉS (WOTR-STYLE) ---
+        private static Texture2D borderTexture;
+
+        private static void DrawProceduralFrame(Rect rect, Color borderColor, float thickness)
+        {
+            if (borderTexture == null)
+            {
+                borderTexture = new Texture2D(1, 1);
+                borderTexture.SetPixel(0, 0, Color.white);
+                borderTexture.Apply();
+            }
+            Color savedColor = GUI.color;
+            GUI.color = borderColor;
+            
+            // Bord supérieur
+            GUI.DrawTexture(new Rect(rect.x, rect.y, rect.width, thickness), borderTexture);
+            // Bord inférieur
+            GUI.DrawTexture(new Rect(rect.x, rect.yMax - thickness, rect.width, thickness), borderTexture);
+            // Bord gauche
+            GUI.DrawTexture(new Rect(rect.x, rect.y, thickness, rect.height), borderTexture);
+            // Bord droit
+            GUI.DrawTexture(new Rect(rect.xMax - thickness, rect.y, thickness, rect.height), borderTexture);
+            
+            GUI.color = savedColor;
+        }
+
+        private static void DrawWotRCornerBrackets(Rect rect, Color goldColor, float thickness, float bracketSize)
+        {
+            if (borderTexture == null)
+            {
+                borderTexture = new Texture2D(1, 1);
+                borderTexture.SetPixel(0, 0, Color.white);
+                borderTexture.Apply();
+            }
+            Color savedColor = GUI.color;
+            GUI.color = goldColor;
+
+            // Angle supérieur gauche
+            GUI.DrawTexture(new Rect(rect.x, rect.y, bracketSize, thickness), borderTexture);
+            GUI.DrawTexture(new Rect(rect.x, rect.y, thickness, bracketSize), borderTexture);
+
+            // Angle supérieur droit
+            GUI.DrawTexture(new Rect(rect.xMax - bracketSize, rect.y, bracketSize, thickness), borderTexture);
+            GUI.DrawTexture(new Rect(rect.xMax - thickness, rect.y, thickness, bracketSize), borderTexture);
+
+            // Angle inférieur gauche
+            GUI.DrawTexture(new Rect(rect.x, rect.yMax - thickness, bracketSize, thickness), borderTexture);
+            GUI.DrawTexture(new Rect(rect.x, rect.yMax - bracketSize, thickness, bracketSize), borderTexture);
+
+            // Angle inférieur droit
+            GUI.DrawTexture(new Rect(rect.xMax - bracketSize, rect.yMax - thickness, bracketSize, thickness), borderTexture);
+            GUI.DrawTexture(new Rect(rect.xMax - thickness, rect.yMax - bracketSize, thickness, bracketSize), borderTexture);
+
+            GUI.color = savedColor;
+        }
+
+        private Color HexToColor(string hex)
+        {
+            if (ColorUtility.TryParseHtmlString(hex, out Color color))
+            {
+                return color;
+            }
+            return Color.white;
+        }
+		
+		private Color GetAccoladeColor(string tier)
+        {
+            if (tier.Contains("SSS") || tier.Contains("SS")) return HexToColor("#C4A265"); // Or royal
+            if (tier.Contains("S") || tier.Contains("A")) return HexToColor("#597F96");   // Ardoise
+            if (tier.Contains("B") || tier.Contains("C")) return HexToColor("#6D8467");   // Vert sauge
+            return HexToColor("#9E1B1B"); // Rouge brique pour les échecs / faibles grades
+        }
+
+        private Color GetDebriefColor(string tier)
+        {
+            // Rouge brique pour les alertes critiques de survie ou de feu allié
+            if (tier == "💀" || tier == "☠️" || tier == "🔥" || tier == "⚠️") 
+                return HexToColor("#9E1B1B"); 
+                
+            // Or royal pour les résistances et jets de sauvegarde ratés
+            if (tier == "🔮" || tier == "⚡" || tier == "⛓️" || tier == "🩸" || tier == "👣") 
+                return HexToColor("#C4A265"); 
+                
+            // Vert sauge pour la récupération ou les petites alertes
+            if (tier == "💤" || tier == "🍃") 
+                return HexToColor("#6D8467");
+
+            // Bleu ardoise par défaut pour les informations neutres
+            return HexToColor("#597F96");
         }
     }
 	public class CombatTracker : 
@@ -979,7 +1233,21 @@ public class UnitCombatStats
         IUnitBuffHandler,
         IAreaHandler // Écoute active des chargements et transitions de cartes
     {
-        private bool isCombatActive = false;
+        // --- HELPER PRIVÉ D'INCRÉMENTATION SÉCURISÉE ---
+        private void IncrementSourceCount(Dictionary<string, int> dict, string key)
+        {
+            if (string.IsNullOrEmpty(key)) return;
+            if (dict.ContainsKey(key))
+            {
+                dict[key]++;
+            }
+            else
+            {
+                dict[key] = 1;
+            }
+        }
+		
+		private bool isCombatActive = false;
         public Dictionary<string, UnitCombatStats> combatStats = new Dictionary<string, UnitCombatStats>();
         private HashSet<string> deadUnitsThisCombat = new HashSet<string>(); 
         public HashSet<string> factionSwappedUnitsThisCombat = new HashSet<string>();
@@ -1560,13 +1828,20 @@ public class UnitCombatStats
         {
             try
             {
-                if (!isCombatActive) return;
+                if (!isCombatActive || evt.IsFake) return; // Ignore les pré-calculs ou attaques fictives
 
                 if (evt.Initiator != null)
                 {
                     var stats = GetOrAddStats(evt.Initiator, out _);
                     if (stats != null)
                     {
+                        // Enregistrement de la précision offensive (Tentées vs Touchées)
+                        stats.AttacksAttempted++;
+                        if (evt.IsHit)
+                        {
+                            stats.AttacksLanded++;
+                        }
+
                         if (evt.IsCriticalConfirmed)
                         {
                             stats.Crits++;
@@ -1596,10 +1871,8 @@ public class UnitCombatStats
                             targetStats.AttacksDodged++;
                         }
                     }
-				}
-			}
-            
-			
+                }
+            }
             catch (Exception ex)
             {
                 Main.Logger.Error("[CombatMVP] Erreur dans OnEventDidTrigger(RuleAttackRoll) : " + ex);
@@ -1713,7 +1986,23 @@ public class UnitCombatStats
                 if (!isCombatActive || buff == null || buff.Context == null || buff.Blueprint == null) return;
                 var target = buff.Owner?.Unit; 
                 var caster = buff.Context.MaybeCaster;
-                if (target == null || caster == null) return;
+                if (target == null) return;
+
+                // --- CAPTURE DES DEBUFFS (EFFETS NÉFASTES) SUBIS PAR UN MEMBRE DU GROUPE ---
+                if (target.IsPlayerFaction && buff.Blueprint.Harmful)
+                {
+                    var targetStats = GetOrAddStats(target, out _);
+                    if (targetStats != null)
+                    {
+                        string debuffName = buff.Blueprint.Name;
+                        if (!string.IsNullOrEmpty(debuffName))
+                        {
+                            targetStats.SufferedDebuffs.Add(debuffName);
+                        }
+                    }
+                }
+
+                if (caster == null) return;
 
                 // --- CAS 1 : SOUTIEN ALLIE ---
                 if (caster.IsPlayerFaction && target.IsPlayerFaction)
@@ -1893,16 +2182,32 @@ public class UnitCombatStats
             try
             {
                 if (!isCombatActive || evt.Initiator == null || evt.Reason?.Context == null) return;
-				// --- CAPTURE DES SÉCURITÉS POUR LE DÉBRIEFING (ALLIÉS ET ENNEMIS) ---
+                // --- CAPTURE DES SÉCURITÉS POUR LE DÉBRIEFING (ALLIÉS ET ENNEMIS) ---
                 var statsSec = GetOrAddStats(evt.Initiator, out _);
                 if (statsSec != null)
                 {
                     if (!evt.IsPassed)
                     {
                         statsSec.SavesFailed++;
-                        if (evt.Type == SavingThrowType.Fortitude) statsSec.SavesFortFailed++;
-                        else if (evt.Type == SavingThrowType.Reflex) statsSec.SavesRefFailed++;
-                        else if (evt.Type == SavingThrowType.Will) statsSec.SavesWillFailed++;
+                        
+                        // Extraction du nom de l'effet d'origine de façon sécurisée
+                        string sourceName = evt.Reason?.Name ?? "Effet inconnu";
+
+                        if (evt.Type == SavingThrowType.Fortitude)
+                        {
+                            statsSec.SavesFortFailed++;
+                            IncrementSourceCount(statsSec.SavesFortFailedSources, sourceName);
+                        }
+                        else if (evt.Type == SavingThrowType.Reflex)
+                        {
+                            statsSec.SavesRefFailed++;
+                            IncrementSourceCount(statsSec.SavesRefFailedSources, sourceName);
+                        }
+                        else if (evt.Type == SavingThrowType.Will)
+                        {
+                            statsSec.SavesWillFailed++;
+                            IncrementSourceCount(statsSec.SavesWillFailedSources, sourceName);
+                        }
                     }
                     else
                     {
@@ -2004,6 +2309,19 @@ public class UnitCombatStats
                     if (stats != null)
                     {
                         stats.SpellsResistedCount++;
+
+                        // Extraction du nom du sort et du nom de l'ennemi résistant
+                        string spellName = evt.Ability?.Name ?? evt.Context?.Name ?? "Sort inconnu";
+                        string targetName = evt.Target?.CharacterName ?? "Inconnu";
+
+                        if (!stats.SpellsResistedSources.ContainsKey(spellName))
+                        {
+                            stats.SpellsResistedSources[spellName] = new List<string>();
+                        }
+                        if (!stats.SpellsResistedSources[spellName].Contains(targetName))
+                        {
+                            stats.SpellsResistedSources[spellName].Add(targetName);
+                        }
                     }
                 }
             }

@@ -1,12 +1,13 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
+<PropertyGroup>
     <TargetFramework>net48</TargetFramework>
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GamePath>D:\TEST NEW PATHFINDER WOTR\Pathfinder Second Adventure</GamePath>
     <AssemblyName>WotR_CombatMVP</AssemblyName>
     <RootNamespace>WotR_CombatMVP</RootNamespace>
+    <Version>1.2.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -69,5 +70,35 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+  
+<Target Name="CreateZip" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <!-- 1. Créer le dossier temporaire propre de staging -->
+    <MakeDir Directories="$(MSBuildProjectDirectory)\bin\Staging\Combat Metrics &amp; Accolades" />
+    
+    <!-- 2. Copier uniquement les fichiers du code, des métadonnées, de licence et le README -->
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\Combat Metrics &amp; Accolades\WotR_CombatMVP.dll"
+          DestinationFolder="$(MSBuildProjectDirectory)\bin\Staging\Combat Metrics &amp; Accolades" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\Combat Metrics &amp; Accolades\Info.json"
+          DestinationFolder="$(MSBuildProjectDirectory)\bin\Staging\Combat Metrics &amp; Accolades" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\Combat Metrics &amp; Accolades\LICENSE.txt"
+          DestinationFolder="$(MSBuildProjectDirectory)\bin\Staging\Combat Metrics &amp; Accolades" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\Combat Metrics &amp; Accolades\README.md"
+          DestinationFolder="$(MSBuildProjectDirectory)\bin\Staging\Combat Metrics &amp; Accolades" />
+    
+    <!-- 3. Copier le sous-dossier de traductions vers le dossier de staging -->
+    <ItemGroup>
+      <LocFiles Include="$(MSBuildProjectDirectory)\Combat Metrics &amp; Accolades\Localization\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(LocFiles)"
+          DestinationFolder="$(MSBuildProjectDirectory)\bin\Staging\Combat Metrics &amp; Accolades\Localization\%(RecursiveDir)" />
+
+    <!-- 4. Compresser uniquement le dossier de staging (exclut de fait les images lourdes) -->
+    <ZipDirectory SourceDirectory="$(MSBuildProjectDirectory)\bin\Staging"
+                  DestinationFile="$(MSBuildProjectDirectory)\bin\Combat Metrics &amp; Accolades-$(Version).zip"
+                  Overwrite="true" />
+
+    <!-- 5. Nettoyer proprement le dossier temporaire de staging après la compression -->
+    <RemoveDir Directories="$(MSBuildProjectDirectory)\bin\Staging" />
+  </Target>
 
 </Project>
