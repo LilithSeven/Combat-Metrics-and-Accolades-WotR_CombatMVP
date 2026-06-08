@@ -12,7 +12,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download ${{ github.event.release.tag_name }} --pattern "*.zip" --repo ${{ github.repository }} --clobber
+          # Télécharge UNIQUEMENT le ZIP contenant le numéro de version (ex: Combat Metrics & Accolades-1.1.0.zip)
+          # et ignore totalement le ZIP statique des images (Mythic Backgrounds)
+          gh release download ${{ github.event.release.tag_name }} --pattern "Combat Metrics & Accolades-[0-9]*.zip" --repo ${{ github.repository }} --clobber
           ls *.zip || { echo "No zip asset found in release"; exit 1; }
 
       - name: Get zip filename and version

@@ -1,0 +1,13 @@
+update focused on raw combat analysis and objective telemetry:
+
+-Raw Telemetry: Added a dashboard displaying physical offensive accuracy (hits/attempts) and defensive avoidance (dodges/targeted attacks).
+
+-Saving Throws Log: Detailed tracking by name of spells and effects that resulted in failed saving throws (Fortitude, Reflex, Will).
+
+-Spell Resistance (SR): Detailed tracking of spells blocked by enemy spell resistance, including the list of associated targets.
+
+-Status Conditions Suffered: Logging of debuffs and harmful effects endured by your characters.
+
+-Visual Overhaul & Consistency: Color harmonization and contrast improvements.
+
+-Text Cleanup: Simplification and refinement of tactical sheets to prioritize objective data over subjective advice.
