@@ -123,8 +123,12 @@ public class UnitCombatStats
         public string Name;
         public UnitEntityData UnitData;
         public bool IsAlly;
+		public bool OriginallyAlly; // --- NOUVEAU : Allégeance d'origine gelée à la création ---
         public int Level = 1;
         public int CR = 0;
+		// --- NOUVEAU : Suivi précis et nominatif de la source des dégâts ---
+        public Dictionary<string, int> DamageBySource = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+		public Dictionary<string, Dictionary<string, int>> DamageModifiersAudit = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
         public string MythicPathName = "";
         public string MythicPathInternalName = ""; // Ajout du nom de classe interne	
         public bool IsEvil = false; 
@@ -210,12 +214,19 @@ public class UnitCombatStats
         public Dictionary<string, int> SavesWillFailedSources = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         // --- REGISTRE DE RÉSISTANCE MAGIQUE (SR) NOMINATIF ---
-        // Associe le nom du sort (ex: "Fireball") à la liste des ennemis qui l'ont résisté
-        public Dictionary<string, List<string>> SpellsResistedSources = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        // Associe le nom du sort à un sous-dictionnaire contenant le nom de l'ennemi et son nombre d'occurrences
+        public Dictionary<string, Dictionary<string, int>> SpellsResistedSources = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
 
         // --- REGISTRE DES EFFETS NÉFASTES SUBIS ---
         // Liste unique des altérations d'états et débuffs subis par le personnage
         public HashSet<string> SufferedDebuffs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		// --- SUIVI DES ÉLIMINATIONS NOMINATIVES GROUPÉES ---
+        // Associe le nom localisé de la victime au nombre de fois qu'elle a été éliminée par ce personnage
+        public Dictionary<string, int> KilledUnits = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        // --- REGISTRE DES SORTS ET EFFETS ÉVITÉS (SAVED) PAR LES ENNEMIS ---
+        // Associe le nom du sort à un sous-dictionnaire contenant le nom de l'ennemi et le nombre d'échecs constatés
+        public Dictionary<string, Dictionary<string, int>> SpellsSavedSources = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
         public int SummonDamage = 0;
         public int SummonKills = 0;
 
@@ -262,6 +273,9 @@ public class UnitCombatStats
 
         // --- NOUVEAU : Le Mur de Verre ---
         private GameObject invisibleGlassWall;
+		// --- NOUVEAU : Barre de recherche et filtrage dynamique ---
+        private string searchQuery = "";
+        private List<UnitCombatStats> filteredCombatants = new List<UnitCombatStats>();
 
         private void EnsureUIInitialized()
         {
@@ -394,6 +408,8 @@ public class UnitCombatStats
             }
             
             allCombatants = allies.Concat(enemies).ToList();
+            searchQuery = "";
+            filteredCombatants = new List<UnitCombatStats>(allCombatants);
             currentPageIndex = 0;
             scrollPosition = Vector2.zero;
             
@@ -434,6 +450,24 @@ public class UnitCombatStats
                 }
             }
             return null;
+        }
+		
+		private void ApplySearchFilter()
+        {
+            if (string.IsNullOrEmpty(searchQuery))
+            {
+                filteredCombatants = new List<UnitCombatStats>(allCombatants);
+            }
+            else
+            {
+                string query = searchQuery.ToLower();
+                filteredCombatants = allCombatants
+                    .Where(s => (s.Name != null && s.Name.ToLower().Contains(query)) || 
+                                (s.MythicPathName != null && s.MythicPathName.ToLower().Contains(query)))
+                    .ToList();
+            }
+            currentPageIndex = 0;
+            scrollPosition = Vector2.zero;
         }
 
         private Texture2D overlayTexture; 
@@ -481,7 +515,9 @@ public class UnitCombatStats
         {
             if (!showWindow || allCombatants.Count == 0) return;
             EnsureUIInitialized();
-            UnitCombatStats currentStat = allCombatants[currentPageIndex];
+            
+            // Si la recherche ne donne rien, on se replie sur le fond d'écran du premier combattant
+            UnitCombatStats currentStat = filteredCombatants.Count > 0 ? filteredCombatants[currentPageIndex] : allCombatants[0];
             
             fullScreenRect = new Rect(0, 0, Screen.width, Screen.height);
             Texture2D activeBg = GetDynamicBackground(currentStat);
@@ -534,7 +570,7 @@ public class UnitCombatStats
             navStyle.normal.textColor = new Color(0.8f, 0.7f, 0.5f); 
             if (currentPageIndex > 0)
                 if (GUI.Button(new Rect(30, Screen.height / 2 - 40, 50, 80), "<", navStyle)) { currentPageIndex--; scrollPosition = Vector2.zero; }
-            if (currentPageIndex < allCombatants.Count - 1)
+            if (currentPageIndex < filteredCombatants.Count - 1)
                 if (GUI.Button(new Rect(Screen.width - 80, Screen.height / 2 - 40, 50, 80), ">", navStyle)) { currentPageIndex++; scrollPosition = Vector2.zero; }
 
             GUIStyle closeStyle = new GUIStyle(GUI.skin.button) { fontSize = 28, fontStyle = FontStyle.Bold };
@@ -583,16 +619,15 @@ public class UnitCombatStats
 
         void DrawBookLayout(float width, float height)
         {
-            UnitCombatStats currentStat = allCombatants[currentPageIndex];
+            // 1. Déclaration unique des largeurs de zones pour toute la méthode
+            float leftZoneWidth = width * 0.40f;
+            float rightZoneWidth = width * 0.58f;
+
             string colTitle = "#C4A265";    // Muted Imperial Gold (Or officiel)
             string colSub = "#8C8C8C";      // Stone Grey (Gris pierre / argent terni)
             string colText = "#E2D5B5";     // Warm Parchment (Parchemin off-white)
             string colDanger = "#9E1B1B";   // Deep Crimson (Rouge brique / Sang séché)
-            string colSlate = "#597F96";    // Muted Slate Blue (Bleu ardoise feutré)
-            string colSage = "#6D8467";     // Sage Green (Vert sauge feutré)
-            string colPlum = "#5C2B5C";     // Dark Plum (Prune sombre)
-            string colAmethyst = "#7A4F8F"; // Amethyst Purple (Améthyste pour le son/contrôle)
-            string colCopper = "#B55C25";   // Rust Orange (Orange cuivré pour le feu) 
+            string colSlate = "#597F96";    // Muted Slate Blue (Bleu ardoise feutré) 
             
             GUIStyle sectionTitleStyle = new GUIStyle(GUI.skin.label) { fontSize = 28, fontStyle = FontStyle.Bold, richText = true };
             GUIStyle statStyle = new GUIStyle(GUI.skin.label) { fontSize = 22, richText = true, margin = new RectOffset(0,0,4,4) };
@@ -600,15 +635,64 @@ public class UnitCombatStats
 
             GUILayout.BeginHorizontal(); 
 
-            // ================= ZONE GAUCHE (Identité & Portrait) =================
-            float leftZoneWidth = width * 0.40f; 
+            // ================= ZONE GAUCHE (Identité, Portrait & Recherche) =================
             GUILayout.BeginVertical(GUILayout.Width(leftZoneWidth));
             GUILayout.Space(20);
+
+            // Rendu de la barre de recherche
+            GUILayout.BeginHorizontal();
+            string filterLabel = Localization.GetStringById("ui.search.filter_label") ?? "Filter:";
+            GUILayout.Label($"<color=#8C8C8C><b>{filterLabel}</b></color> ", new GUIStyle(GUI.skin.label) { richText = true, fontSize = 18 }, GUILayout.Width(70));
+            string oldQuery = searchQuery;
+            searchQuery = GUILayout.TextField(searchQuery, GUILayout.Width(150), GUILayout.Height(25));
+            if (GUILayout.Button("X", GUILayout.Width(25), GUILayout.Height(25)))
+            {
+                searchQuery = "";
+            }
+            if (searchQuery != oldQuery)
+            {
+                ApplySearchFilter();
+            }
+            GUILayout.EndHorizontal();
+            GUILayout.Space(15);
+
+            // Si aucune fiche ne correspond à la recherche
+            if (filteredCombatants.Count == 0)
+            {
+                GUILayout.EndVertical(); // Fermeture propre de la colonne de gauche
+
+                GUILayout.BeginVertical(GUILayout.Width(rightZoneWidth)); // Utilisation directe sans redéclaration
+                GUILayout.Space(height * 0.4f);
+                GUIStyle noMatchStyle = new GUIStyle(GUI.skin.label) {
+                    fontSize = 24,
+                    fontStyle = FontStyle.Italic,
+                    alignment = TextAnchor.MiddleCenter,
+                    richText = true
+                };
+                GUILayout.Label($"<color=#9E1B1B>{Localization.GetStringById("ui.search.no_match") ?? "No combat sheets found matching your search."}</color>", noMatchStyle);
+                GUILayout.EndVertical();
+                GUILayout.EndHorizontal();
+                return;
+            }
+
+            UnitCombatStats currentStat = filteredCombatants[currentPageIndex]; 
+
+            
             
             string allegiance = "";
             if (currentStat.IsAlly)
             {
-                allegiance = currentPageIndex == 0 ? $"<color={colTitle}>{Localization.GetStringById("ui.mvp")}</color>" : $"<color={colSlate}>{Localization.GetStringById("ui.ally_squad")}</color>";
+                // Si l'analyse tactique est active (ShowDebriefView == true),
+                // on masque le titre de "Vanguard" (MVP) et on le remplace par le label neutre "Compagnon / Compagnie Alliée".
+                if (currentPageIndex == 0 && !SettingsManager.Current.ShowDebriefView)
+                {
+                    allegiance = $"<color={colTitle}>{Localization.GetStringById("ui.mvp")}</color>";
+                }
+                else
+                {
+                    allegiance = $"<color={colSlate}>{Localization.GetStringById("ui.ally_squad")}</color>";
+                }
+
                 // Masqué si l'analyse pure est active (ShowDebriefView == true)
                 if (Main.Tracker != null && !SettingsManager.Current.ShowDebriefView)
                 {
@@ -619,6 +703,7 @@ public class UnitCombatStats
             {
                 allegiance = $"<color={colDanger}>{Localization.GetStringById("ui.enemy_threat")}</color>";
             }
+			
             GUILayout.Label(allegiance, new GUIStyle(GUI.skin.label) { fontSize = 20, fontStyle = FontStyle.Bold, richText = true });
 
             string displayName = currentStat.Name;
@@ -799,7 +884,6 @@ public class UnitCombatStats
             GUILayout.EndVertical();
 
             // ================= ZONE DROITE (Stats Détaillées & Succès) =================
-            float rightZoneWidth = width * 0.58f; 
             GUILayout.BeginVertical(GUILayout.Width(rightZoneWidth));
             GUILayout.Space(20);
             
@@ -818,71 +902,79 @@ public class UnitCombatStats
 
             GUILayout.BeginHorizontal();
             GUILayout.BeginVertical(GUILayout.Width(rightZoneWidth * 0.48f));
-            GUILayout.Label(string.Format(Localization.GetStringById("ui.damage_done") ?? "⚔️ <b>Dégâts Infligés :</b> <color={0}>{1}</color>", colText, currentStat.TotalDamage), statStyle);
+            GUILayout.Label(string.Format(Localization.GetStringById("ui.damage_done") ?? " <b>Dégâts Infligés :</b> <color={0}>{1}</color>", colText, currentStat.TotalDamage), statStyle);
             
-            string overkillText = currentStat.OverkillDmg > 0 ? string.Format(Localization.GetStringById("ui.overkill_text") ?? " <color={0}><i>(+{1} Overkill)</i></color>", colDanger, currentStat.OverkillDmg) : "";
-            string instaKillText = currentStat.InstaKills > 0 ? string.Format(Localization.GetStringById("ui.instakills_text") ?? " <color=#B959FF><i>(dont {0} Insta-Kills 🔮)</i></color>", currentStat.InstaKills) : "";
-            GUILayout.Label(string.Format(Localization.GetStringById("ui.kills_title") ?? "💀 <b>Éliminations :</b> <color={0}>{1}</color>{2}{3}", colText, currentStat.Kills, overkillText, instaKillText), statStyle);
-            GUILayout.Label(string.Format(Localization.GetStringById("ui.crits_aoo") ?? "🎯 <b>Critiques :</b> <color={0}>{1}</color> | <b>AoO :</b> <color={0}>{2}</color>", colText, currentStat.Crits, currentStat.AoOs), statStyle);
+            string instaKillText = currentStat.InstaKills > 0 ? string.Format(Localization.GetStringById("ui.instakills_text") ?? " <color=#B959FF><i>(including {0} Instant Fatalities)</i></color>", currentStat.InstaKills) : "";
+            GUILayout.Label(string.Format(Localization.GetStringById("ui.kills_title") ?? " <b>Éliminations :</b> <color={0}>{1}</color>{2}{3}", colText, currentStat.Kills, instaKillText, ""), statStyle);
+            GUILayout.Label(string.Format(Localization.GetStringById("ui.crits_aoo") ?? " <b>Critiques :</b> <color={0}>{1}</color> | <b>AoO :</b> <color={0}>{2}</color>", colText, currentStat.Crits, currentStat.AoOs), statStyle);
             GUILayout.EndVertical();
 
             GUILayout.BeginVertical(GUILayout.Width(rightZoneWidth * 0.48f));
-            GUILayout.Label(string.Format(Localization.GetStringById("ui.damage_taken") ?? "🛡️ <b>Dégâts Subis :</b> <color={0}>{1}</color>", colText, currentStat.DamageTaken), statStyle);
-            GUILayout.Label(string.Format(Localization.GetStringById("ui.attacks_dodged") ?? "🍃 <b>Esquives :</b> <color={0}>{1}</color>", colText, currentStat.AttacksDodged), statStyle);
-            GUILayout.Label(string.Format(Localization.GetStringById("ui.healing_done") ?? "👼 <b>Soins :</b> <color={0}>{1}</color>", colText, currentStat.HealingDone + currentStat.VampiricHealing), statStyle);
+            GUILayout.Label(string.Format(Localization.GetStringById("ui.damage_taken") ?? " <b>Dégâts Subis :</b> <color={0}>{1}</color>", colText, currentStat.DamageTaken), statStyle);
+            GUILayout.Label(string.Format(Localization.GetStringById("ui.attacks_dodged") ?? " <b>Esquives :</b> <color={0}>{1}</color>", colText, currentStat.AttacksDodged), statStyle);
+            GUILayout.Label(string.Format(Localization.GetStringById("ui.healing_done") ?? " <b>Soins :</b> <color={0}>{1}</color>", colText, currentStat.HealingDone + currentStat.VampiricHealing), statStyle);
             if (currentStat.SupportBuffsCast > 0)
             {
-                GUILayout.Label(string.Format(Localization.GetStringById("ui.support_cast") ?? "✨ <b>Soutiens lancés :</b> <color={0}>{1}</color>", colText, currentStat.SupportBuffsCast), statStyle);
+                GUILayout.Label(string.Format(Localization.GetStringById("ui.support_cast") ?? " <b>Soutiens lancés :</b> <color={0}>{1}</color>", colText, currentStat.SupportBuffsCast), statStyle);
             }
             GUILayout.EndVertical();
             GUILayout.EndHorizontal();
             GUILayout.Space(15);
+			
+			// --- ÉLIMINATIONS NOMINATIVES HAUTE VISIBILITÉ ---
+            if (currentStat.KilledUnits.Count > 0)
+            {
+                string killedFoesHeader = Localization.GetStringById("ui.telemetry.killed_foes") ?? "Vanquished: ";
+                string killedFoesDetails = string.Join(", ", currentStat.KilledUnits.Select(kvp => 
+                    kvp.Value > 1 ? $"<color={colText}>{kvp.Key}</color> <color={colTitle}><b>(x{kvp.Value})</b></color>" : $"<color={colText}>{kvp.Key}</color>"
+                ));
+                // Affichage en taille 22 (statStyle) avec contrastes de couleurs Or et Parchemin
+                GUILayout.Label($"<b><color={colTitle}>{killedFoesHeader}</color></b> {killedFoesDetails}", statStyle);
+                GUILayout.Space(10);
+            }
 
             if (currentStat.FriendlyFireDmg > 0)
             {
-                GUILayout.Label(string.Format(Localization.GetStringById("ui.friendly_fire_warn") ?? "⚠️ <b><color={0}>Tir Allié (Dégâts infligés au groupe) : {1}</color></b>", colDanger, currentStat.FriendlyFireDmg), statStyle);
+                GUILayout.Label(string.Format(Localization.GetStringById("ui.friendly_fire_warn") ?? " <b><color={0}>Tir Allié (Dégâts infligés au groupe) : {1}</color></b>", colDanger, currentStat.FriendlyFireDmg), statStyle);
             }
 
-            string dmgDetails = "";
-            if (currentStat.SlashingDmg > 0) dmgDetails += $"{Localization.GetStringById("ui.dmg.slashing")} ({currentStat.SlashingDmg}) | ";
-            if (currentStat.PiercingDmg > 0) dmgDetails += $"{Localization.GetStringById("ui.dmg.piercing")} ({currentStat.PiercingDmg}) | ";
-            if (currentStat.BludgeoningDmg > 0) dmgDetails += $"{Localization.GetStringById("ui.dmg.bludgeoning")} ({currentStat.BludgeoningDmg}) | ";
-            if (currentStat.SlashPierceDmg > 0) dmgDetails += $"{Localization.GetStringById("ui.dmg.slash_pierce")} ({currentStat.SlashPierceDmg}) | ";
-            if (currentStat.SlashBludgeonDmg > 0) dmgDetails += $"{Localization.GetStringById("ui.dmg.slash_bludgeon")} ({currentStat.SlashBludgeonDmg}) | ";
-            if (currentStat.PierceBludgeonDmg > 0) dmgDetails += $"{Localization.GetStringById("ui.dmg.pierce_bludgeon")} ({currentStat.PierceBludgeonDmg}) | ";
-            if (currentStat.AllPhysDmg > 0) dmgDetails += $"{Localization.GetStringById("ui.dmg.all_phys")} ({currentStat.AllPhysDmg}) | ";
-            if (currentStat.FireDmg > 0) dmgDetails += $"<color={colCopper}>{Localization.GetStringById("ui.dmg.fire")} ({currentStat.FireDmg})</color> | ";
-            if (currentStat.ColdDmg > 0) dmgDetails += $"<color={colSlate}>{Localization.GetStringById("ui.dmg.cold")} ({currentStat.ColdDmg})</color> | ";
-            if (currentStat.AcidDmg > 0) dmgDetails += $"<color={colSage}>{Localization.GetStringById("ui.dmg.acid")} ({currentStat.AcidDmg})</color> | ";
-            if (currentStat.ElectricDmg > 0) dmgDetails += $"<color={colTitle}>{Localization.GetStringById("ui.dmg.electricity")} ({currentStat.ElectricDmg})</color> | ";
-            if (currentStat.SonicDmg > 0) dmgDetails += $"<color={colAmethyst}>{Localization.GetStringById("ui.dmg.sonic")} ({currentStat.SonicDmg})</color> | ";
-            if (currentStat.NegativeDmg > 0) dmgDetails += $"<color={colPlum}>{Localization.GetStringById("ui.dmg.negative")} ({currentStat.NegativeDmg})</color> | ";
-            if (currentStat.HolyDmg > 0) dmgDetails += $"<color={colText}>{Localization.GetStringById("ui.dmg.holy")} ({currentStat.HolyDmg})</color> | ";
-            if (currentStat.UnholyDmg > 0) dmgDetails += $"<color={colDanger}>{Localization.GetStringById("ui.dmg.unholy")} ({currentStat.UnholyDmg})</color> | ";
-
-            int classifiedDamage = currentStat.SlashingDmg + currentStat.PiercingDmg + currentStat.BludgeoningDmg + 
-                                   currentStat.SlashPierceDmg + currentStat.SlashBludgeonDmg + currentStat.PierceBludgeonDmg + currentStat.AllPhysDmg +
-                                   currentStat.FireDmg + currentStat.ColdDmg + currentStat.AcidDmg + 
-                                   currentStat.ElectricDmg + currentStat.SonicDmg + currentStat.NegativeDmg + 
-                                   currentStat.HolyDmg + currentStat.UnholyDmg;
-
-            int untypedDamage = currentStat.TotalDamage - classifiedDamage;
-            if (untypedDamage > 0) dmgDetails += $"<color=#cccccc>{Localization.GetStringById("ui.dmg.other")} ({untypedDamage})</color> | ";
-            if (dmgDetails.Length > 0) dmgDetails = dmgDetails.Substring(0, dmgDetails.Length - 3); 
-
-            if (currentStat.TotalDamage > 0)
+            if (currentStat.TotalDamage > 0 || currentStat.SummonDamage > 0)
             {
+                // Rendu vertical précis de la source des dégâts
+                string detailsHeader = Localization.GetStringById("ui.dmg.details_header") ?? "Particulars: ";
+                GUILayout.Label($"<color={colTitle}><b>{detailsHeader}</b></color>", detailStyle);
+
+                int masterTotalDmg = currentStat.TotalDamage + currentStat.SummonDamage;
+                if (masterTotalDmg <= 0) masterTotalDmg = 1;
+
+                var sortedSources = currentStat.DamageBySource
+                    .OrderByDescending(kvp => kvp.Value)
+                    .ToList();
+
+                foreach (var src in sortedSources)
+                {
+                    int percentage = (int)Math.Round((double)src.Value * 100 / masterTotalDmg);
+                    // Point vertical propre : Source (Type) : Dégâts (Pourcentage%)
+                    GUILayout.Label($"• <color={colText}>{src.Key}</color> : <color={colTitle}><b>{src.Value}</b></color> ({percentage}%)", detailStyle);
+                }
+
+                GUILayout.Label(string.Format(Localization.GetStringById("ui.dmg.biggest_hit") ?? "<color={0}><i>Mightiest Blow: {1}</i></color>", colSub, currentStat.MaxSingleHit), detailStyle);
+                
+                // Relocalisation claire de l'apport des Attaques Sournoises sous le coup le plus puissant
                 if (currentStat.SneakAttackDmg > 0) 
                 {
-                    GUILayout.Label(string.Format(Localization.GetStringById("ui.dmg.sneak_bonus") ?? "<color=#ffcc00><i>(dont {0} en Attaque Sournoise)</i></color>", currentStat.SneakAttackDmg), detailStyle);
+                    GUILayout.Label(string.Format(Localization.GetStringById("ui.dmg.sneak_bonus") ?? "<color=#ffcc00><i>(whereof {0} dealt by a Sneak Attack)</i></color>", currentStat.SneakAttackDmg), detailStyle);
                 }
-                if (dmgDetails.Length > 0) 
+
+                // Relocalisation de l'acharnement (Overkill) clarifié sous le coup le plus puissant
+                if (currentStat.OverkillDmg > 0)
                 {
-                    GUILayout.Label(string.Format(Localization.GetStringById("ui.dmg.details") ?? "<color={0}><i>Détails : {1}</i></color>", colSub, dmgDetails), detailStyle);
+                    GUILayout.Label(string.Format(Localization.GetStringById("ui.overkill_text") ?? "<color={0}><i>Total damage dealt to targets under 0 HP: <b>{1}</b> (included in the total)</i></color>", colDanger, currentStat.OverkillDmg), detailStyle);
                 }
-                GUILayout.Label(string.Format(Localization.GetStringById("ui.dmg.biggest_hit") ?? "<color={0}><i>Plus gros coup : {1}</i></color>", colSub, currentStat.MaxSingleHit), detailStyle);
+                
                 GUILayout.Space(10);
             }
+			
 
             if (currentStat.HealingDone > 0 || currentStat.VampiricHealing > 0)
             {
@@ -912,22 +1004,22 @@ public class UnitCombatStats
                 if (currentStat.CC_Slowed > 0 || currentStat.CC_Staggered > 0) ccDetails += $"{Localization.GetStringById("ui.cc.slowed_label")} ({currentStat.CC_Slowed + currentStat.CC_Staggered}), ";
                 if (currentStat.CC_Helpless > 0) ccDetails += $"{Localization.GetStringById("ui.cc.helpless_label")} ({currentStat.CC_Helpless}), ";
                 if (ccDetails.Length > 0) ccDetails = ccDetails.Substring(0, ccDetails.Length - 2);
-                GUILayout.Label(string.Format(Localization.GetStringById("ui.cc.total_applied") ?? "⛓️ <b>Entraves (CC) Appliquées : {0}</b>", totalCC), statStyle);
+                GUILayout.Label(string.Format(Localization.GetStringById("ui.cc.total_applied") ?? " <b>Entraves (CC) Appliquées : {0}</b>", totalCC), statStyle);
                 GUILayout.Label(string.Format(Localization.GetStringById("ui.cc.details_label") ?? "<color={0}><i>Détails : {1}</i></color>", colSub, ccDetails), detailStyle);
                 GUILayout.Space(10);
             }
 
             if (currentStat.StatDamage > 0 || currentStat.NegativeLevels > 0)
             {
-                GUILayout.Label(string.Format(Localization.GetStringById("ui.misc.stat_dmg") ?? "🩸 <b>Dégâts Carac. :</b> <color={0}>{1}</color> | <b>Niveaux Drainés :</b> <color={0}>{2}</color>", colText, currentStat.StatDamage, currentStat.NegativeLevels), statStyle);
+                GUILayout.Label(string.Format(Localization.GetStringById("ui.misc.stat_dmg") ?? " <b>Dégâts Carac. :</b> <color={0}>{1}</color> | <b>Niveaux Drainés :</b> <color={0}>{2}</color>", colText, currentStat.StatDamage, currentStat.NegativeLevels), statStyle);
             }
             if (currentStat.IconicSpellsCast > 0)
             {
-                GUILayout.Label(string.Format(Localization.GetStringById("ui.misc.iconic_spells") ?? "🔮 <b>Sorts de Mort/Terreur lancés :</b> <color={0}>{1}</color>", colText, currentStat.IconicSpellsCast), statStyle);
+                GUILayout.Label(string.Format(Localization.GetStringById("ui.misc.iconic_spells") ?? " <b>Sorts de Mort/Terreur lancés :</b> <color={0}>{1}</color>", colText, currentStat.IconicSpellsCast), statStyle);
             }
             if (currentStat.SummonDamage > 0 || currentStat.SummonKills > 0)
             {
-                GUILayout.Label(string.Format(Localization.GetStringById("ui.misc.summons_report") ?? "🦴 <b>Apport des Invocations :</b> <color={0}>{1} dégâts | {2} exécutions</color>", colText, currentStat.SummonDamage, currentStat.SummonKills), statStyle);
+                GUILayout.Label(string.Format(Localization.GetStringById("ui.misc.summons_report") ?? " <b>Apport des Invocations :</b> <color={0}>{1} dégâts | {2} exécutions</color>", colText, currentStat.SummonDamage, currentStat.SummonKills), statStyle);
             }
             GUILayout.Space(25);
 
@@ -952,8 +1044,8 @@ public class UnitCombatStats
 
             // Bouton interactif de permutation robuste
             string toggleBtnText = !SettingsManager.Current.ShowDebriefView 
-                ? (Localization.GetStringById("ui.debrief.toggle_to_debrief") ?? "💡 Analyse Tactique") 
-                : (Localization.GetStringById("ui.debrief.toggle_to_ach") ?? "🏆 Voir les Accolades");
+                ? (Localization.GetStringById("ui.debrief.toggle_to_debrief") ?? " Analyse Tactique") 
+                : (Localization.GetStringById("ui.debrief.toggle_to_ach") ?? " Voir les Accolades");
 
             // Rendu avec contraintes de taille IMGUI standard (Immunisé contre les bugs de layout)
             if (GUILayout.Button($"<color=#E2D5B5><b>{toggleBtnText}</b></color>", GUILayout.Width(180), GUILayout.Height(30)))
@@ -1063,11 +1155,36 @@ public class UnitCombatStats
                 GUILayout.Label($"<color={colSlate}><b>" + (Localization.GetStringById("ui.telemetry.sr_blocks") ?? "SORTS BLOQUES PAR LA RC ENNEMIE") + "</b></color>", statStyle);
                 if (currentStat.SpellsResistedSources.Count > 0)
                 {
-                    string targetSep = Localization.GetStringById("ui.telemetry.target_separator") ?? " sur ";
-                    string srDetails = string.Join("\n", currentStat.SpellsResistedSources.Select(kvp => 
-                        $"• <color={colText}>{kvp.Key}</color> ({kvp.Value.Count} {timesLabel}){targetSep}<color={colSub}>{string.Join(", ", kvp.Value)}</color>"
-                    ));
-                    GUILayout.Label(srDetails, detailStyle);
+                   string rawSep = Localization.GetStringById("ui.telemetry.target_separator") ?? " sur ";
+                   string targetSep = " " + rawSep.Trim() + " ";
+                   string srDetails = string.Join("\n", currentStat.SpellsResistedSources.Select(kvp => {
+                   string enemiesList = string.Join(", ", kvp.Value.Select(e => e.Value > 1 ? $"{e.Key} (x{e.Value})" : e.Key));
+                   int totalTimes = kvp.Value.Values.Sum();
+                   return $"• <color={colText}>{kvp.Key}</color> ({totalTimes} {timesLabel}){targetSep}<color={colSub}>{enemiesList}</color>";
+                   }));
+                   GUILayout.Label(srDetails, detailStyle);
+                }
+                else
+                {
+                   GUILayout.Label($"• <color={colSub}>{noneLabel}</color>", detailStyle);
+                }
+                GUILayout.Space(15);
+				
+				// --- REGISTRE DES SORTS ET EFFETS ÉVITÉS PAR LES ENNEMIS (JETS DE SAUVEGARDE RÉUSSIS) ---
+                GUILayout.Label($"<color={colSlate}><b>" + (Localization.GetStringById("ui.telemetry.spells_saved_by_enemies") ?? "SORTS EVITES PAR LES SAUVEGARDES ENNEMIES") + "</b></color>", statStyle);
+                if (currentStat.SpellsSavedSources.Count > 0)
+                {
+                    // Sécurisation d'aération forcée des espaces horizontaux du séparateur
+                    string rawSep = Localization.GetStringById("ui.telemetry.target_separator") ?? " sur ";
+                    string targetSep = " " + rawSep.Trim() + " ";
+
+                    string savedDetails = string.Join("\n", currentStat.SpellsSavedSources.Select(kvp => {
+                        string enemiesList = string.Join(", ", kvp.Value.Select(e => e.Value > 1 ? $"{e.Key} (x{e.Value})" : e.Key));
+                        int totalTimes = kvp.Value.Values.Sum();
+                        return $"• <color={colText}>{kvp.Key}</color> ({totalTimes} {timesLabel}){targetSep}<color={colSub}>{enemiesList}</color>";
+                    }));
+					
+                    GUILayout.Label(savedDetails, detailStyle);
                 }
                 else
                 {
@@ -1084,6 +1201,35 @@ public class UnitCombatStats
                 }
                 GUILayout.Label($"• {debuffsText}", detailStyle);
                 GUILayout.Space(25);
+				
+				// --- NOUVEAU : AUDIT DÉTAILLÉ DES MODIFICATEURS DE DÉGÂTS D'OWLCAT (DÉBRIEFING) ---
+                if (currentStat.DamageModifiersAudit.Count > 0)
+                {
+                    GUILayout.Label($"<color={colSlate}><b>" + (Localization.GetStringById("ui.telemetry.damage_modifiers_audit") ?? "AUDIT DETAILLE DES MODIFICATEURS DE DEGATS") + "</b></color>", statStyle);
+                    
+
+                    foreach (var srcKvp in currentStat.DamageModifiersAudit)
+                    {
+                        string sourceKey = srcKvp.Key;
+                        var auditDict = srcKvp.Value;
+                        if (auditDict.Count > 0)
+                        {
+                            // En-tête de la source de dégâts
+                            GUILayout.Label($"• <color={colTitle}><b>{sourceKey}</b></color> :", detailStyle);
+                            
+                            int totalSourceDmg = auditDict.Values.Sum();
+                            if (totalSourceDmg <= 0) totalSourceDmg = 1;
+
+                            // Rendu indenté de chaque modificateur d'Owlcat avec calcul du pourcentage
+                            foreach (var modKvp in auditDict.OrderByDescending(m => m.Value))
+                            {
+                                int percentage = (int)Math.Round((double)modKvp.Value * 100 / totalSourceDmg);
+                                GUILayout.Label($"  - <color={colText}>{modKvp.Key}</color> : <color={colTitle}><b>+{modKvp.Value}</b></color> ({percentage}%)", detailStyle);
+                            }
+                        }
+                    }
+                    GUILayout.Space(25);
+                }
 
                 // --- SÉPARATEUR DE SECTION ESTHÉTIQUE (Diviseur d'ardoise sombre) ---
                 Color savedColor = GUI.color;
@@ -1097,17 +1243,12 @@ public class UnitCombatStats
                 // ====================================================================
                 int lv = Main.Tracker != null ? Main.Tracker.currentPartyLevel : 1;
                 var adviceList = TacticalDebriefing.GenerateAdvice(currentStat, lv);
-                if (adviceList.Count == 0)
-                {
-                    string cleanPerformance = Localization.GetStringById("ui.debrief.flawless_performance") ?? "Excellente performance ! Aucun axe d'amélioration critique n'a été relevé pour ce personnage durant ce combat.";
-                    GUILayout.Label($"<color=#65A2C4><i>{cleanPerformance}</i></color>", detailStyle);
-                }
-                else
+                if (adviceList.Count > 0)
                 {
                     foreach (var advice in adviceList)
                     {
                         Color adviceColor = GetDebriefColor(advice.Tier);
-                        GUILayout.Label($"<size=24><b><color={ColorToHex(adviceColor)}>[{advice.Tier}] {advice.Title}</color></b></size>", new GUIStyle(GUI.skin.label) { richText = true });
+                        GUILayout.Label($"<size=24><b><color={ColorToHex(adviceColor)}>{advice.Title}</color></b></size>", new GUIStyle(GUI.skin.label) { richText = true });
                         GUILayout.Label($"<size=18><color={colText}>{advice.Description}</color></size>", detailStyle);
                         GUILayout.Space(15);
                     }
@@ -1208,15 +1349,15 @@ public class UnitCombatStats
         private Color GetDebriefColor(string tier)
         {
             // Rouge brique pour les alertes critiques de survie ou de feu allié
-            if (tier == "💀" || tier == "☠️" || tier == "🔥" || tier == "⚠️") 
+            if (tier == "unconscious" || tier == "deaths_door" || tier == "friendly_fire" || tier == "warning" || tier == "fire") 
                 return HexToColor("#9E1B1B"); 
                 
             // Or royal pour les résistances et jets de sauvegarde ratés
-            if (tier == "🔮" || tier == "⚡" || tier == "⛓️" || tier == "🩸" || tier == "👣") 
+            if (tier == "will" || tier == "spell_resistance" || tier == "cc" || tier == "fortitude" || tier == "aoos" || tier == "blood" || tier == "vampiric") 
                 return HexToColor("#C4A265"); 
                 
             // Vert sauge pour la récupération ou les petites alertes
-            if (tier == "💤" || tier == "🍃") 
+            if (tier == "fatigue" || tier == "reflex") 
                 return HexToColor("#6D8467");
 
             // Bleu ardoise par défaut pour les informations neutres
@@ -1331,16 +1472,19 @@ public class UnitCombatStats
             UnitEntityData trueInitiator = GetTrueInitiator(unit, out isSummonAction);
             if (trueInitiator == null) return null;
 
-            bool originallyAlly = Game.Instance.Player.PartyAndPets.Contains(trueInitiator);
-            bool currentlyAlly = trueInitiator.IsPlayerFaction;
-            bool isSwapped = originallyAlly != currentlyAlly;
-
-            if (isSwapped)
-            {
-                factionSwappedUnitsThisCombat.Add(trueInitiator.UniqueId);
-            }
+            // Unification de la logique d'alliance sous la variable existante "currentlyAlly"
+            var mainChar = Game.Instance.Player.MainCharacter.Value;
+            bool currentlyAlly = trueInitiator.IsPlayerFaction || (mainChar != null && (trueInitiator.IsAlly(mainChar) || !trueInitiator.IsEnemy(mainChar)));
 
             string name = trueInitiator.CharacterName ?? "Inconnu";
+            
+            // On vérifie si la fiche existe déjà pour comparer le changement d'attitude en temps réel
+            bool isSwapped = false;
+            if (combatStats.ContainsKey(name))
+            {
+                isSwapped = combatStats[name].OriginallyAlly != currentlyAlly;
+            }
+
             string statsKey = isSwapped ? name + " [DOMINATED]" : name;
 
             if (!combatStats.ContainsKey(statsKey))
@@ -1353,21 +1497,34 @@ public class UnitCombatStats
                 // La détection de l'alignement maléfique s'appuie également sur le nom interne
                 bool isEvil = mythicLower.Contains("lich") || mythicLower.Contains("demon") || mythicLower.Contains("swarm") || mythicLower.Contains("devil") || mythicLower.Contains("diable")
                     || internalLower.Contains("lich") || internalLower.Contains("demon") || internalLower.Contains("swarm") || internalLower.Contains("devil");
-                bool currentIsAlly = trueInitiator.IsPlayerFaction;
 
                 combatStats[statsKey] = new UnitCombatStats { 
                     Name = (trueInitiator.IsPet) ? $"{name}{Localization.GetStringById("ui.pet_suffix") ?? " (Familier)"}" : name,
                     UnitData = trueInitiator,
-                    IsAlly = currentIsAlly,
+                    IsAlly = currentlyAlly, 
+                    OriginallyAlly = currentlyAlly, // Enregistré à l'instanciation de la fiche
                     IsDominatedSheet = isSwapped,
                     Level = trueInitiator.Progression?.CharacterLevel ?? 1,
                     CR = trueInitiator.Blueprint?.CR ?? 1, 
                     MythicPathName = mythic,
-                    MythicPathInternalName = mythicInternal, // Enregistrement du nom de classe interne
+                    MythicPathInternalName = mythicInternal, 
                     IsEvil = isEvil,
                     Gender = trueInitiator.Gender
                 };
             }
+            else
+            {
+                // Mise à jour de l'attitude courante si la fiche existe déjà
+                var existingStats = combatStats[statsKey];
+                existingStats.IsAlly = currentlyAlly;
+                existingStats.IsDominatedSheet = existingStats.OriginallyAlly != currentlyAlly;
+            }
+
+            if (combatStats[statsKey].IsDominatedSheet)
+            {
+                factionSwappedUnitsThisCombat.Add(trueInitiator.UniqueId);
+            }
+
             return combatStats[statsKey];
         }
 
@@ -1629,7 +1786,7 @@ public class UnitCombatStats
                 if (!stat.IsAlly && stat.TotalScore <= 0 && stat.Grade == "FFF-") continue;
                 string faction = stat.IsAlly ? "[ALLIÉ]" : $"[ENNEMI (CR {stat.CR})]";
                 Main.Logger.Log($"{faction} {stat.Name} | RANG: {stat.Grade} | SCORE EXACT: {stat.TotalScore:F2}");
-                Main.Logger.Log($"  -> Dégâts Totaux: {stat.TotalDamage} (Dégâts Pondérés pour le Score: {stat.WeightedDamageDone:F1})");
+                Main.Logger.Log($" -> Dégâts Totaux: {stat.TotalDamage} (Dégâts Pondérés pour le Score: {stat.WeightedDamageDone:F1})");
                 string physLog = "";
                 if (stat.SlashingDmg > 0) physLog += $"{stat.SlashingDmg} Tranchant | ";
                 if (stat.PiercingDmg > 0) physLog += $"{stat.PiercingDmg} Perçant | ";
@@ -1640,17 +1797,17 @@ public class UnitCombatStats
                 if (stat.AllPhysDmg > 0) physLog += $"{stat.AllPhysDmg} Tran/Perç/Cont | ";
                 if (stat.SneakAttackDmg > 0) physLog += $"(Inclus: {stat.SneakAttackDmg} Sournoises) | ";
                 if (physLog == "") physLog = "0"; else physLog = physLog.TrimEnd(' ', '|');
-                Main.Logger.Log($"  -> Phys: {physLog}");
-                Main.Logger.Log($"  -> Élem/Magie: {stat.FireDmg} Feu / {stat.ColdDmg} Froid / {stat.AcidDmg} Acide / {stat.ElectricDmg} Foudre / {stat.SonicDmg} Son | Sacré/Impie/Nég: {stat.HolyDmg}/{stat.UnholyDmg}/{stat.NegativeDmg}");
-                Main.Logger.Log($"  -> Soins: {stat.HealingDone + stat.VampiricHealing} | Dégâts Subis: {stat.DamageTaken} | Esquives: {stat.AttacksDodged}");
-                Main.Logger.Log($"  -> Kills: {stat.Kills + stat.SummonKills} (Kills Pondérés: {stat.WeightedKills:F1})");
-                Main.Logger.Log($"  -> CC Pondéré: {stat.WeightedCCs:F1} | Soutien Pondéré: {stat.WeightedSupportBuffs:F1} | Tir Allié: {stat.FriendlyFireDmg} | Overkill: {stat.OverkillDmg}");
+                Main.Logger.Log($" -> Phys: {physLog}");
+                Main.Logger.Log($" -> Élem/Magie: {stat.FireDmg} Feu / {stat.ColdDmg} Froid / {stat.AcidDmg} Acide / {stat.ElectricDmg} Foudre / {stat.SonicDmg} Son | Sacré/Impie/Nég: {stat.HolyDmg}/{stat.UnholyDmg}/{stat.NegativeDmg}");
+                Main.Logger.Log($" -> Soins: {stat.HealingDone + stat.VampiricHealing} | Dégâts Subis: {stat.DamageTaken} | Esquives: {stat.AttacksDodged}");
+                Main.Logger.Log($" -> Kills: {stat.Kills + stat.SummonKills} (Kills Pondérés: {stat.WeightedKills:F1})");
+                Main.Logger.Log($" -> CC Pondéré: {stat.WeightedCCs:F1} | Soutien Pondéré: {stat.WeightedSupportBuffs:F1} | Tir Allié: {stat.FriendlyFireDmg} | Overkill: {stat.OverkillDmg}");
                 if (stat.Achievements.Count > 0)
                 {
-                    Main.Logger.Log("  -> SUCCÈS DÉBLOQUÉS :");
+                    Main.Logger.Log(" -> SUCCÈS DÉBLOQUÉS :");
                     foreach (var ach in stat.Achievements.OrderByDescending(a => a.Weight))
                     {
-                        Main.Logger.Log($"      * [{ach.Tier}] {ach.Title}");
+                        Main.Logger.Log($" * [{ach.Tier}] {ach.Title}");
                     }
                 }
                 Main.Logger.Log("---------------------------------------------------------");
@@ -1708,6 +1865,225 @@ public class UnitCombatStats
                     int hpBeforeHit = evt.Target.HPLeft + damage;
                     if (hpBeforeHit > 0) stats.OverkillDmg += (damage - hpBeforeHit);
                     else stats.OverkillDmg += damage; 
+                }
+
+                // Enregistrement ultra-précis de l'instance de dégât par source et audit des modificateurs équilibrés
+                int accumulatedThisTrigger = 0;
+                foreach (var dv in evt.ResultList ?? new List<Kingmaker.RuleSystem.Rules.Damage.DamageValue>())
+                {
+                    int finalForChunk = dv.FinalValue;
+                    if (finalForChunk <= 0) continue;
+                    accumulatedThisTrigger += finalForChunk;
+
+                    string damageTypeLoc = GetDamageTypeLocalizedName(dv.Source);
+                    string sourceName = GetDamageSourceName(evt);
+
+                    if (isSummon)
+                    {
+                        string initiatorName = evt.Initiator.CharacterName ?? "Inconnu";
+                        sourceName = $"{initiatorName} - {sourceName}";
+                    }
+
+                    string key = $"{sourceName} ({damageTypeLoc})";
+                    if (stats.DamageBySource.ContainsKey(key))
+                        stats.DamageBySource[key] += finalForChunk;
+                    else
+                        stats.DamageBySource[key] = finalForChunk;
+
+                    // --- Enregistrement d'audit détaillé des modificateurs d'Owlcat ---
+                    if (!stats.DamageModifiersAudit.ContainsKey(key))
+                    {
+                        stats.DamageModifiersAudit[key] = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                    }
+                    var auditDict = stats.DamageModifiersAudit[key];
+
+                    // 1. JET DE DÉS DE BASE
+                    int baseRoll = dv.RollResult;
+                    if (baseRoll > 0)
+                    {
+                        string baseRollLabel = Localization.GetStringById("ui.dmg.audit_base_roll") ?? "Jet de dés de base";
+                        if (auditDict.ContainsKey(baseRollLabel)) auditDict[baseRollLabel] += baseRoll;
+                        else auditDict[baseRollLabel] = baseRoll;
+                    }
+
+                    // 2. EXTRACTION DU BONUS DE CONSTRUCTEUR DE SORTS
+                    // L'engin d'Owlcat applique parfois un bonus plat à la création de l'objet de dégâts,
+                    // absent de la liste des modificateurs individuels. On le calcule par soustraction.
+                    int sumModifiers = 0;
+                    if (dv.Source.Modifiers != null)
+                    {
+                        foreach (var mod in dv.Source.Modifiers) sumModifiers += mod.Value;
+                    }
+                    int constructorBonus = dv.Source.Bonus - sumModifiers;
+                    if (constructorBonus > 0)
+                    {
+                        string constLabel = Localization.GetStringById("ui.dmg.audit_constructor_bonus") ?? "Bonus de base de l'effet";
+                        if (auditDict.ContainsKey(constLabel)) auditDict[constLabel] += constructorBonus;
+                        else auditDict[constLabel] = constructorBonus;
+                    }
+
+                    // 3. ENREGISTREMENT DES MODIFICATEURS PLATS (BUILD)
+                    if (dv.Source.Modifiers != null)
+                    {
+                        foreach (var mod in dv.Source.Modifiers)
+                        {
+                            int modVal = mod.Value;
+                            if (modVal != 0)
+                            {
+                                string modName = GetModifierName(mod);
+                                if (auditDict.ContainsKey(modName)) auditDict[modName] += modVal;
+                                else auditDict[modName] = modVal;
+                            }
+                        }
+                    }
+
+                    // 4. BONUS LIÉS À LA CIBLE (TARGET RELATED)
+                    int targetRelated = dv.Source.BonusTargetRelated;
+                    if (targetRelated > 0)
+                    {
+                        string targetLabel = Localization.GetStringById("ui.dmg.audit_target_bonus") ?? "Bonus lié à la cible";
+                        if (auditDict.ContainsKey(targetLabel)) auditDict[targetLabel] += targetRelated;
+                        else auditDict[targetLabel] = targetRelated;
+                    }
+
+                    // --- RECONSTRUCTION HIÉRARCHIQUE DES MULTIPLICATEURS RÉELS D'OWLCAT ---
+                    int baseFlatDmg = dv.RollAndBonusValue; // Jet + Bonus + Modificateurs plats
+
+                    // A. Extension d'effet (Empower / Métamagie)
+                    float empowerMult = dv.Source.EmpowerBonus.Value;
+                    int empowerContribution = 0;
+                    if (empowerMult > 1f)
+                    {
+                        empowerContribution = (int)Math.Round(baseFlatDmg * (empowerMult - 1f));
+                        string empowerLabel = (Localization.GetStringById("ui.dmg.audit_empower") ?? "Extension d'effet") + " (x" + empowerMult + ")";
+                        if (auditDict.ContainsKey(empowerLabel)) auditDict[empowerLabel] += empowerContribution;
+                        else auditDict[empowerLabel] = empowerContribution;
+                    }
+
+                    // B. Coup Critique (Critical Modifier)
+                    int critContribution = 0;
+                    if (evt.AttackRoll?.IsCriticalConfirmed == true)
+                    {
+                        int critMult = dv.Source.CriticalModifier ?? 1;
+                        if (critMult > 1)
+                        {
+                            critContribution = (int)Math.Round((baseFlatDmg * empowerMult) * (critMult - 1));
+                            string critLabel = (Localization.GetStringById("ui.dmg.audit_critical") ?? "Coup Critique") + " (x" + critMult + ")";
+                            if (auditDict.ContainsKey(critLabel)) auditDict[critLabel] += critContribution;
+                            else auditDict[critLabel] = critContribution;
+                        }
+                    }
+
+                    // C. Modificateur de Pourcentage (Bonus Percent)
+                    int bonusPercent = dv.Source.BonusPercent;
+                    int percentContribution = 0;
+                    if (bonusPercent != 0)
+                    {
+                        int critMult = (evt.AttackRoll?.IsCriticalConfirmed == true) ? (dv.Source.CriticalModifier ?? 1) : 1;
+                        percentContribution = (int)Math.Round((baseFlatDmg * empowerMult * critMult) * (bonusPercent / 100f));
+                        string percentLabel = (Localization.GetStringById("ui.dmg.audit_percent_bonus") ?? "Bonus de pourcentage") + " (+" + bonusPercent + "%)";
+                        if (auditDict.ContainsKey(percentLabel)) auditDict[percentLabel] += percentContribution;
+                        else auditDict[percentLabel] = percentContribution;
+                    }
+
+                    // D. Vulnérabilité / Résistance / Immunité
+                    float vulnerability = dv.Source.Vulnerability;
+                    int vulnerabilityContribution = 0;
+                    if (vulnerability != 1f)
+                    {
+                        int critMult = (evt.AttackRoll?.IsCriticalConfirmed == true) ? (dv.Source.CriticalModifier ?? 1) : 1;
+                        int valueBeforeVulnerability = (int)Math.Round(baseFlatDmg * empowerMult * critMult * (1f + bonusPercent / 100f));
+
+                        if (vulnerability == 0f)
+                        {
+                            vulnerabilityContribution = -valueBeforeVulnerability;
+                            string immuneLabel = Localization.GetStringById("ui.dmg.audit_immunity") ?? "Atténuation / Immunité totale";
+                            if (auditDict.ContainsKey(immuneLabel)) auditDict[immuneLabel] += vulnerabilityContribution;
+                            else auditDict[immuneLabel] = vulnerabilityContribution;
+                        }
+                        else
+                        {
+                            vulnerabilityContribution = (int)Math.Round(valueBeforeVulnerability * (vulnerability - 1f));
+                            string labelKey = (vulnerability > 1f) ? "ui.dmg.audit_vulnerability" : "ui.dmg.audit_resistance";
+                            string labelText = Localization.GetStringById(labelKey) ?? ((vulnerability > 1f) ? "Vulnérabilité" : "Résistance");
+                            string finalLabel = labelText + " (x" + vulnerability + ")";
+                            if (auditDict.ContainsKey(finalLabel)) auditDict[finalLabel] += vulnerabilityContribution;
+                            else auditDict[finalLabel] = vulnerabilityContribution;
+                        }
+                    }
+
+                    // 5. RÉDUCTION DE DÉGÂTS (RD / ATTÉNUATION PLAFONNÉE)
+                    int reduction = dv.Reduction;
+                    if (reduction > 0)
+                    {
+                        string drLabel = Localization.GetStringById("ui.dmg.audit_reduction") ?? "Réduction de dégâts (RD) / Atténuation";
+                        if (auditDict.ContainsKey(drLabel)) auditDict[drLabel] -= reduction;
+                        else auditDict[drLabel] = -reduction;
+                    }
+
+                    // 6. APPLICATION DU MULTIPLICATEUR DE DIFFICULTÉ
+                    int difficultyContribution = 0;
+                    if (evt.DifficultyModifier != 1f && dv.Source.Type != DamageType.Direct)
+                    {
+                        difficultyContribution = (int)Math.Round(dv.FinalValue * (evt.DifficultyModifier - 1f));
+                        string diffLabel = (Localization.GetStringById("ui.dmg.audit_difficulty") ?? "Ajustement de difficulté") + " (x" + evt.DifficultyModifier + ")";
+                        if (auditDict.ContainsKey(diffLabel)) auditDict[diffLabel] += difficultyContribution;
+                        else auditDict[diffLabel] = difficultyContribution;
+                    }
+
+                    // 7. RÉCONCILIATION ET AJUSTEMENT D'ARRONDI D'ENTIERS (TRANSPARENCE TOTALE)
+                    // L'engin de jeu effectue des divisions d'entiers et des troncatures à chaque étape intermédiaire.
+                    // Pour garantir une équivalence exacte sans altérer les données, nous calculons l'arrondi réel.
+                    int actualFinalValue = (dv.Source.Type == DamageType.Direct || evt.Initiator.IsPlayerFaction) 
+                        ? finalForChunk 
+                        : Math.Max(1, (int)(finalForChunk * evt.DifficultyModifier));
+
+                    int currentAuditSum = baseRoll + constructorBonus + sumModifiers + targetRelated + empowerContribution + critContribution + percentContribution + vulnerabilityContribution - reduction + difficultyContribution;
+                    int roundingError = actualFinalValue - currentAuditSum;
+
+                    if (roundingError != 0)
+                    {
+                        string roundingLabel = Localization.GetStringById("ui.dmg.audit_rounding") ?? "Arrondi d'évaluation de l'engin";
+                        if (auditDict.ContainsKey(roundingLabel)) auditDict[roundingLabel] += roundingError;
+                        else auditDict[roundingLabel] = roundingError;
+                    }
+                }
+
+                // Barrière mathématique : Capture d'un éventuel résidu (Ajustement de difficulté)
+                int remainder = evt.Result - accumulatedThisTrigger;
+                if (remainder > 0)
+                {
+                    string sourceName = GetDamageSourceName(evt);
+                    if (isSummon)
+                    {
+                        string initiatorName = evt.Initiator.CharacterName ?? "Inconnu";
+                        sourceName = $"{initiatorName} - {sourceName}";
+                    }
+
+                    // Alignement strict : Le résidu hérite du type de dégât du premier chunk s'il existe
+                    string damageTypeLoc = Localization.GetStringById("ui.dmg.other") ?? "Autres sources";
+                    if (evt.ResultList != null && evt.ResultList.Count > 0)
+                    {
+                        damageTypeLoc = GetDamageTypeLocalizedName(evt.ResultList[0].Source);
+                    }
+
+                    string key = $"{sourceName} ({damageTypeLoc})";
+                    if (stats.DamageBySource.ContainsKey(key))
+                        stats.DamageBySource[key] += remainder;
+                    else
+                        stats.DamageBySource[key] = remainder;
+
+                    // Audit du résidu d'Owlcat sous la même clé exacte équilibrée
+                    if (!stats.DamageModifiersAudit.ContainsKey(key))
+                    {
+                        stats.DamageModifiersAudit[key] = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                    }
+                    var auditDict = stats.DamageModifiersAudit[key];
+                    string remainderLabel = Localization.GetStringById("ui.dmg.audit_remainder") ?? "Ajustement global / Palier de difficulté";
+                    if (auditDict.ContainsKey(remainderLabel))
+                        auditDict[remainderLabel] += remainder;
+                    else
+                        auditDict[remainderLabel] = remainder;
                 }
 
                 if (isSummon) 
@@ -1769,13 +2145,16 @@ public class UnitCombatStats
                     }
                 }
 
-                // VALIDATION DES KILLS (Et exécution du Couloir de la Mort)
-                // VALIDATION DES KILLS (Et exécution du Couloir de la Mort)
-                if (evt.Target.HPLeft <= 0 && !deadUnitsThisCombat.Contains(evt.Target.UniqueId))
+                // VALIDATION DES KILLS ET DISTINCTION DES ALLIÉS UNIQUEMENT INCONSCIENTS
+                // Un allié à 0 PV n'est pas mort s'il est simplement inconscient (LifeState.Unconscious).
+                // Pour les ennemis, s'ils tombent à 0 PV, ils sont considérés hors d'état.
+                bool isTargetReallyDead = evt.Target.State.IsDead || evt.Target.State.IsFinallyDead || (!evt.Target.IsPlayerFaction && evt.Target.HPLeft <= 0);
+
+                if (isTargetReallyDead && !deadUnitsThisCombat.Contains(evt.Target.UniqueId))
                 {
                     deadUnitsThisCombat.Add(evt.Target.UniqueId);
                     
-                    // Si la cible qui tombe à 0 PV ou moins est un allié, on enregistre l'inconscience
+                    // Si un allié meurt définitivement, on incrémente son compteur d'inconscience/chute
                     if (targetStats != null && targetStats.IsAlly)
                     {
                         targetStats.TimesDowned++;
@@ -1787,20 +2166,27 @@ public class UnitCombatStats
                         stats.HighDangerKills++;
                     }
 
-                    // Vérification du Couloir de la Mort (Insta-Kill)
+                    // Enregistrement du nom de la cible éliminée pour les statistiques groupées
+                    string victimName = evt.Target.CharacterName ?? "Inconnu";
+
+                    // Vérification du Couloir de la Mort (Insta-Kill via sort de mort ou de sauvegarde)
                     if (doomedTargets.TryGetValue(evt.Target.UniqueId, out UnitEntityData executioner))
                     {
                         var execStats = GetOrAddStats(executioner, out _);
                         if (execStats != null)
                         {
-                            execStats.InstaKills++; // LE KILL MAGIQUE EST VALIDÉ !
+                            execStats.InstaKills++; // Le kill magique est validé
                             execStats.Kills++;
+                            
+                            // Enregistrement du nom sous la fiche du tueur
+                            if (execStats.KilledUnits.ContainsKey(victimName)) execStats.KilledUnits[victimName]++;
+                            else execStats.KilledUnits[victimName] = 1;
+
                             if (isHighDanger)
                             {
                                 execStats.HighDangerInstaKills++;
                             }
 
-                            // Boost de score : 50% de valeur en plus pour un instakill réussi sur une cible majeure
                             float instakillMultiplier = multiplier;
                             if (isHighDanger)
                             {
@@ -1810,10 +2196,14 @@ public class UnitCombatStats
                         }
                         doomedTargets.Remove(evt.Target.UniqueId);
                     }
-                    else // Kill Classique
+                    else // Élimination classique (physique ou directe)
                     {
                         if (isSummon) stats.SummonKills++; else stats.Kills++;
-                        stats.WeightedKills += 1f * multiplier; 
+                        stats.WeightedKills += 1f * multiplier;
+
+                        // Enregistrement du nom sous la fiche du tueur
+                        if (stats.KilledUnits.ContainsKey(victimName)) stats.KilledUnits[victimName]++;
+                        else stats.KilledUnits[victimName] = 1;
                     }
                 }
             }
@@ -2239,6 +2629,39 @@ public class UnitCombatStats
                         doomedTargets[victim.UniqueId] = attacker;
                     }
                 }
+				
+                // --- CAPTURE DES SORTS ET EFFETS ÉVITÉS PAR LES ENNEMIS (JETS DE SAUVEGARDE RÉUSSIS) ---
+                var victimUnit = evt.Initiator;
+                var casterUnit = evt.Reason?.Context?.MaybeCaster;
+
+                if (casterUnit != null && casterUnit.IsPlayerFaction && !victimUnit.IsPlayerFaction)
+                {
+                    if (evt.IsPassed)
+                    {
+                        var casterStats = GetOrAddStats(casterUnit, out _);
+                        if (casterStats != null)
+                        {
+                            // Renommage en "sourceAbility" pour éviter le conflit avec la variable de portée supérieure
+                            var sourceAbility = evt.Reason.Context.SourceAbility;
+                            string spellName = sourceAbility != null ? (sourceAbility.Name ?? sourceAbility.name) : (evt.Reason.Name ?? "Effet inconnu");
+                            string enemyName = victimUnit.CharacterName ?? "Inconnu";
+
+                            if (!casterStats.SpellsSavedSources.ContainsKey(spellName))
+                            {
+                                casterStats.SpellsSavedSources[spellName] = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                            }
+
+                            if (casterStats.SpellsSavedSources[spellName].ContainsKey(enemyName))
+                            {
+                                casterStats.SpellsSavedSources[spellName][enemyName]++;
+                            }
+                            else
+                            {
+                                casterStats.SpellsSavedSources[spellName][enemyName] = 1;
+                            }
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -2250,7 +2673,123 @@ public class UnitCombatStats
         // PURGE PRÉVENTIVE ET LIBÉRATION MÉMOIRE (IAreaHandler)
         // ====================================================================
 
-        public void OnAreaDidLoad()
+        
+		// Détermination compile-safe du nom de l'effet ou de l'arme
+        public static string GetDamageSourceName(RuleDealDamage evt)
+        {
+            try
+            {
+                if (evt.AttackRoll != null && evt.AttackRoll.Weapon != null)
+                {
+                    string wpName = evt.AttackRoll.Weapon.Name;
+                    if (!string.IsNullOrEmpty(wpName)) return wpName;
+                }
+
+                if (evt.Reason != null)
+                {
+                    string reasonName = evt.Reason.Name;
+                    if (!string.IsNullOrEmpty(reasonName)) return reasonName;
+                }
+
+                if (evt.Reason?.Context?.SourceAbility != null)
+                {
+                    string spellName = evt.Reason.Context.SourceAbility.Name;
+                    if (!string.IsNullOrEmpty(spellName)) return spellName;
+                }
+
+                if (evt.SourceAbility != null)
+                {
+                    string spellName = evt.SourceAbility.Name;
+                    if (!string.IsNullOrEmpty(spellName)) return spellName;
+                }
+            }
+            catch (Exception ex)
+            {
+                Main.Logger.Error("[CombatMVP] Erreur lors du calcul du nom de la source : " + ex.Message);
+            }
+
+            return Localization.GetStringById("ui.dmg.other") ?? "Autres sources";
+        }
+
+        // Traduction unifiée de l'énumération des types de dégâts physiques et d'énergies
+        public static string GetDamageTypeLocalizedName(BaseDamage source)
+        {
+            if (source == null) return Localization.GetStringById("ui.dmg.other") ?? "Autres sources";
+
+            if (source is PhysicalDamage physical)
+            {
+                bool s = physical.Form.HasFlag(PhysicalDamageForm.Slashing);
+                bool p = physical.Form.HasFlag(PhysicalDamageForm.Piercing);
+                bool b = physical.Form.HasFlag(PhysicalDamageForm.Bludgeoning);
+
+                if (s && p && b) return Localization.GetStringById("ui.dmg.all_phys") ?? "Tranchant/Perçant/Contondant";
+                if (s && p) return Localization.GetStringById("ui.dmg.slash_pierce") ?? "Tranchant/Perçant";
+                if (s && b) return Localization.GetStringById("ui.dmg.slash_bludgeon") ?? "Tranchant/Contondant";
+                if (p && b) return Localization.GetStringById("ui.dmg.pierce_bludgeon") ?? "Perçant/Contondant";
+                if (s) return Localization.GetStringById("ui.dmg.slashing") ?? "Tranchant";
+                if (p) return Localization.GetStringById("ui.dmg.piercing") ?? "Perçant";
+                if (b) return Localization.GetStringById("ui.dmg.bludgeoning") ?? "Contondant";
+            }
+            else if (source is EnergyDamage energy)
+            {
+                switch (energy.EnergyType)
+                {
+                    case DamageEnergyType.Fire: return Localization.GetStringById("ui.dmg.fire") ?? "Feu";
+                    case DamageEnergyType.Cold: return Localization.GetStringById("ui.dmg.cold") ?? "Froid";
+                    case DamageEnergyType.Acid: return Localization.GetStringById("ui.dmg.acid") ?? "Acide";
+                    case DamageEnergyType.Electricity: return Localization.GetStringById("ui.dmg.electricity") ?? "Électricité";
+                    case DamageEnergyType.Sonic: return Localization.GetStringById("ui.dmg.sonic") ?? "Son";
+                    case DamageEnergyType.NegativeEnergy: return Localization.GetStringById("ui.dmg.negative") ?? "Négatif";
+                    case DamageEnergyType.Holy: 
+                    case DamageEnergyType.Divine: return Localization.GetStringById("ui.dmg.holy") ?? "Sacré";
+                    case DamageEnergyType.Unholy: return Localization.GetStringById("ui.dmg.unholy") ?? "Profane";
+                }
+            }
+            else if (source.Type == DamageType.Force)
+            {
+                return "Force";
+            }
+            else if (source.Type == DamageType.Direct)
+            {
+                return "Direct";
+            }
+
+            return Localization.GetStringById("ui.dmg.other") ?? "Autres sources";
+        }
+		
+		// Résolution dynamique du nom du modificateur (Force, Châtiment, Attaque en puissance, etc.)
+        public static string GetModifierName(Modifier mod)
+        {
+            try
+            {
+                if (mod.Fact != null && !string.IsNullOrEmpty(mod.Fact.Name))
+                {
+                    return mod.Fact.Name;
+                }
+
+                switch (mod.Descriptor)
+                {
+                    case ModifierDescriptor.None: return "Base / Autre";
+                    case ModifierDescriptor.Difficulty: return "Difficulté";
+                    case ModifierDescriptor.Rage: return "Rage";
+                    case ModifierDescriptor.Enhancement: return "Altération";
+                    case ModifierDescriptor.Focus: return "Focalisation";
+                    case ModifierDescriptor.Morale: return "Moral";
+                    case ModifierDescriptor.Luck: return "Chance";
+                    case ModifierDescriptor.Sacred: return "Sacré";
+                    case ModifierDescriptor.Profane: return "Profane";
+                    case ModifierDescriptor.Size: return "Taille";
+                    case ModifierDescriptor.Dodge: return "Esquive";
+                    case ModifierDescriptor.WeaponTraining: return "Entraînement aux armes";
+                    case ModifierDescriptor.UntypedStackable: return "Modificateur cumulable";
+                }
+            }
+            catch (Exception) { }
+
+            return mod.Descriptor.ToString();
+        }
+		
+		public void OnAreaDidLoad()
         {
             try
             {
@@ -2316,11 +2855,15 @@ public class UnitCombatStats
 
                         if (!stats.SpellsResistedSources.ContainsKey(spellName))
                         {
-                            stats.SpellsResistedSources[spellName] = new List<string>();
+                           stats.SpellsResistedSources[spellName] = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                         }
-                        if (!stats.SpellsResistedSources[spellName].Contains(targetName))
+                        if (stats.SpellsResistedSources[spellName].ContainsKey(targetName))
                         {
-                            stats.SpellsResistedSources[spellName].Add(targetName);
+                           stats.SpellsResistedSources[spellName][targetName]++;
+                        }
+                        else
+                        {
+                           stats.SpellsResistedSources[spellName][targetName] = 1;
                         }
                     }
                 }

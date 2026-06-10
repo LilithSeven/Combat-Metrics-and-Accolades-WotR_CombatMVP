@@ -76,8 +76,8 @@
     <MakeDir Directories="$(MSBuildProjectDirectory)\bin\Staging\Combat Metrics &amp; Accolades" />
     
     <!-- 2. Copier uniquement les fichiers du code, des métadonnées, de licence et le README -->
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\Combat Metrics &amp; Accolades\WotR_CombatMVP.dll"
-          DestinationFolder="$(MSBuildProjectDirectory)\bin\Staging\Combat Metrics &amp; Accolades" />
+    <Copy SourceFiles="$(TargetDir)WotR_CombatMVP.dll"
+      DestinationFolder="$(MSBuildProjectDirectory)\bin\Staging\Combat Metrics &amp; Accolades" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\Combat Metrics &amp; Accolades\Info.json"
           DestinationFolder="$(MSBuildProjectDirectory)\bin\Staging\Combat Metrics &amp; Accolades" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\Combat Metrics &amp; Accolades\LICENSE.txt"

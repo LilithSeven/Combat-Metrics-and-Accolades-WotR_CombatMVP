@@ -35,7 +35,7 @@ namespace WotR_CombatMVP
                 // ─── SECTION A : ALERTES ALLIÉS (13 ALERTES RETENUES) ───────────────
                 // ====================================================================
 
-                // 1. Alerte : Classe d'Armure Insuffisante
+                // 
                 int attacksDirected = stat.HitsPhysicalTaken + stat.AttacksDodged;
                 if (attacksDirected >= 5)
                 {
@@ -52,11 +52,11 @@ namespace WotR_CombatMVP
                             .Replace("{attacksDodged}", stat.AttacksDodged.ToString())
                             .Replace("{attacksDirected}", attacksDirected.ToString());
 
-                        list.Add(new TacticalAdvice("⚠️", title, desc, new Color(0.9f, 0.4f, 0.2f)));
+                        list.Add(new TacticalAdvice("warning", title, desc, new Color(0.9f, 0.4f, 0.2f)));
                     }
                 }
 
-                // 2. Alerte : Jets de Vigueur
+                // 
                 int totalFortSaves = stat.SavesFortFailed + stat.SavesFortSucceeded;
                 if (totalFortSaves >= 3)
                 {
@@ -71,11 +71,11 @@ namespace WotR_CombatMVP
                             .Replace("{savesFortFailed}", stat.SavesFortFailed.ToString())
                             .Replace("{totalFortSaves}", totalFortSaves.ToString());
 
-                        list.Add(new TacticalAdvice("🩸", title, desc, new Color(0.8f, 0.2f, 0.2f)));
+                        list.Add(new TacticalAdvice("fortitude", title, desc, new Color(0.8f, 0.2f, 0.2f)));
                     }
                 }
 
-                // 3. Alerte : Jets de Réflexes
+                // 
                 int totalRefSaves = stat.SavesRefFailed + stat.SavesRefSucceeded;
                 if (totalRefSaves >= 3)
                 {
@@ -90,11 +90,11 @@ namespace WotR_CombatMVP
                             .Replace("{savesRefFailed}", stat.SavesRefFailed.ToString())
                             .Replace("{totalRefSaves}", totalRefSaves.ToString());
 
-                        list.Add(new TacticalAdvice("🍃", title, desc, new Color(0.2f, 0.8f, 0.6f)));
+                        list.Add(new TacticalAdvice("reflex", title, desc, new Color(0.2f, 0.8f, 0.6f)));
                     }
                 }
 
-                // 4. Alerte : Jets de Volonté
+                // 
                 int totalWillSaves = stat.SavesWillFailed + stat.SavesWillSucceeded;
                 if (totalWillSaves >= 3)
                 {
@@ -109,11 +109,11 @@ namespace WotR_CombatMVP
                             .Replace("{savesWillFailed}", stat.SavesWillFailed.ToString())
                             .Replace("{totalWillSaves}", totalWillSaves.ToString());
 
-                        list.Add(new TacticalAdvice("🔮", title, desc, new Color(0.6f, 0.2f, 0.8f)));
+                        list.Add(new TacticalAdvice("will", title, desc, new Color(0.6f, 0.2f, 0.8f)));
                     }
                 }
 
-                // 5. Alerte : Résistance Magique
+                // 
                 if (stat.SpellsResistedCount >= 2)
                 {
                     string title = Localization.GetStringById("debrief.sr.title") ?? "Alerte : Résistance Magique";
@@ -123,10 +123,10 @@ namespace WotR_CombatMVP
                         .Replace("{name}", stat.Name)
                         .Replace("{spellsResistedCount}", stat.SpellsResistedCount.ToString());
 
-                    list.Add(new TacticalAdvice("⚡", title, desc, new Color(1.0f, 0.85f, 0.2f)));
+                    list.Add(new TacticalAdvice("spell_resistance", title, desc, new Color(1.0f, 0.85f, 0.2f)));
                 }
 
-                // 6. Alerte : Nombre de Chutes
+                // 
                 if (stat.TimesDowned >= 1)
                 {
                     string title = Localization.GetStringById("debrief.survival.title") ?? "Alerte : Nombre de Chutes";
@@ -137,10 +137,10 @@ namespace WotR_CombatMVP
                         .Replace("{accord}", stat.Gender == Kingmaker.Blueprints.Gender.Female ? "e" : "")
                         .Replace("{timesDowned}", stat.TimesDowned.ToString());
 
-                    list.Add(new TacticalAdvice("💀", title, desc, new Color(0.9f, 0.1f, 0.1f)));
+                    list.Add(new TacticalAdvice("unconscious", title, desc, new Color(0.9f, 0.1f, 0.1f)));
                 }
 
-                // 7. Alerte : Dégâts Alliés
+                // 
                 if (stat.FriendlyFireDmg > (partyLevel * 15) && stat.FriendlyFireDmg > totalDamage * 0.15f)
                 {
                     string title = Localization.GetStringById("debrief.ally.friendly_fire.title") ?? "Alerte : Dégâts Alliés";
@@ -150,10 +150,10 @@ namespace WotR_CombatMVP
                         .Replace("{name}", stat.Name)
                         .Replace("{friendlyFireDmg}", stat.FriendlyFireDmg.ToString());
 
-                    list.Add(new TacticalAdvice("🔥", title, desc, new Color(1.0f, 0.2f, 0.2f)));
+                    list.Add(new TacticalAdvice("friendly_fire", title, desc, new Color(1.0f, 0.2f, 0.2f)));
                 }
 
-                // 8. Alerte : Effets de Contrôle Subis
+                // 
                 int totalHardCC = stat.CC_Paralyzed + stat.CC_Stunned + stat.CC_Confused + stat.CC_Asleep;
                 if (totalHardCC >= 2)
                 {
@@ -164,10 +164,10 @@ namespace WotR_CombatMVP
                         .Replace("{name}", stat.Name)
                         .Replace("{ccLocked}", totalHardCC.ToString());
 
-                    list.Add(new TacticalAdvice("⛓️", title, desc, new Color(0.5f, 0.5f, 0.8f)));
+                    list.Add(new TacticalAdvice("cc", title, desc, new Color(0.5f, 0.5f, 0.8f)));
                 }
 
-                // 9. Alerte : Seuil de la Mort
+                // 
                 if (stat.CC_DeathsDoor >= 1)
                 {
                     string title = Localization.GetStringById("debrief.ally.deaths_door.title") ?? "Alerte : Seuil de la Mort";
@@ -175,10 +175,10 @@ namespace WotR_CombatMVP
                     
                     string desc = rawDesc.Replace("{name}", stat.Name);
 
-                    list.Add(new TacticalAdvice("☠️", title, desc, new Color(0.9f, 0.2f, 0.1f)));
+                    list.Add(new TacticalAdvice("deaths_door", title, desc, new Color(0.9f, 0.2f, 0.1f)));
                 }
 
-                // 10. Alerte : Réduction de Dégâts (DR)
+                // 
                 if (totalDamage > (partyLevel * 10) && stat.AllPhysDmg > 0 && stat.MaxSingleHit > 0 && stat.MaxSingleHit < (5 + partyLevel))
                 {
                     string title = Localization.GetStringById("debrief.ally.physical_res.title") ?? "Alerte : Réduction de Dégâts (DR)";
@@ -188,10 +188,10 @@ namespace WotR_CombatMVP
                         .Replace("{name}", stat.Name)
                         .Replace("{maxSingleHit}", stat.MaxSingleHit.ToString());
 
-                    list.Add(new TacticalAdvice("🛡️", title, desc, new Color(0.5f, 0.5f, 0.5f)));
+                    list.Add(new TacticalAdvice("damage_reduction", title, desc, new Color(0.5f, 0.5f, 0.5f)));
                 }
 
-                // 11. Allié : Fatigue et Épuisement
+                // 
                 if (stat.CC_Fatigued + stat.CC_Exhausted >= 1)
                 {
                     string title = Localization.GetStringById("debrief.ally.fatigued_exhausted_dampener.title") ?? "Allié : Fatigue et Épuisement";
@@ -199,10 +199,10 @@ namespace WotR_CombatMVP
                     
                     string desc = rawDesc.Replace("{name}", stat.Name);
 
-                    list.Add(new TacticalAdvice("💤", title, desc, new Color(0.6f, 0.6f, 0.6f)));
+                    list.Add(new TacticalAdvice("fatigue", title, desc, new Color(0.6f, 0.6f, 0.6f)));
                 }
 
-                // 12. Allié : Dégâts d'Électricité
+                // 
                 if (stat.ElectricDmg > (partyLevel * 10) && stat.CC_Stunned == 0)
                 {
                     string title = Localization.GetStringById("debrief.ally.electric_stun_missed.title") ?? "Allié : Dégâts d'Électricité";
@@ -212,10 +212,10 @@ namespace WotR_CombatMVP
                         .Replace("{name}", stat.Name)
                         .Replace("{electricDmg}", stat.ElectricDmg.ToString());
 
-                    list.Add(new TacticalAdvice("⚡", title, desc, new Color(0.9f, 0.9f, 0.2f)));
+                    list.Add(new TacticalAdvice("electricity", title, desc, new Color(0.9f, 0.9f, 0.2f)));
                 }
 
-                // 13. Allié : Dégâts de Feu
+                // 
                 if (stat.FireDmg > (partyLevel * 10) && stat.MaxSingleHit < 15 && stat.Kills == 0)
                 {
                     string title = Localization.GetStringById("debrief.ally.fire_immunity_blocked.title") ?? "Allié : Dégâts de Feu";
@@ -225,7 +225,7 @@ namespace WotR_CombatMVP
                         .Replace("{name}", stat.Name)
                         .Replace("{fireDmg}", stat.FireDmg.ToString());
 
-                    list.Add(new TacticalAdvice("🔥", title, desc, new Color(1.0f, 0.3f, 0.0f)));
+                    list.Add(new TacticalAdvice("fire", title, desc, new Color(1.0f, 0.3f, 0.0f)));
                 }
             }
             else
@@ -234,7 +234,7 @@ namespace WotR_CombatMVP
                 // ─── SECTION B : ALERTES ENNEMIS (12 ALERTES RETENUES) ──────────────
                 // ====================================================================
 
-                // 14. Adversaire : Esquive et CA
+                // 
                 int totalAttacksOnEnemy = stat.AttacksDodged + stat.HitsPhysicalTaken;
                 if (totalAttacksOnEnemy >= 10)
                 {
@@ -249,11 +249,11 @@ namespace WotR_CombatMVP
                             .Replace("{attacksDodged}", stat.AttacksDodged.ToString())
                             .Replace("{totalAttacksOnEnemy}", totalAttacksOnEnemy.ToString());
 
-                        list.Add(new TacticalAdvice("🛡️", title, desc, new Color(0.4f, 0.7f, 0.9f)));
+                        list.Add(new TacticalAdvice("shield", title, desc, new Color(0.4f, 0.7f, 0.9f)));
                     }
                 }
 
-                // 15. Adversaire : Dégâts Infligés
+                // 
                 if (stat.TotalDamage > (partyLevel * 25))
                 {
                     string title = Localization.GetStringById("debrief.enemy.damage.title") ?? "Adversaire : Dégâts Infligés";
@@ -263,10 +263,10 @@ namespace WotR_CombatMVP
                         .Replace("{name}", stat.Name)
                         .Replace("{totalDamage}", stat.TotalDamage.ToString());
 
-                    list.Add(new TacticalAdvice("🔥", title, desc, new Color(0.9f, 0.2f, 0.2f)));
+                    list.Add(new TacticalAdvice("fire", title, desc, new Color(0.9f, 0.2f, 0.2f)));
                 }
 
-                // 16. Adversaire : Jets de Sauvegarde Réussis
+                // 
                 int totalEnemySaves = stat.SavesSucceeded + stat.SavesFailed;
                 if (totalEnemySaves >= 3)
                 {
@@ -281,11 +281,11 @@ namespace WotR_CombatMVP
                             .Replace("{savesSucceeded}", stat.SavesSucceeded.ToString())
                             .Replace("{totalEnemySaves}", totalEnemySaves.ToString());
 
-                        list.Add(new TacticalAdvice("🧿", title, desc, new Color(0.6f, 0.3f, 0.8f)));
+                        list.Add(new TacticalAdvice("enemy_saves", title, desc, new Color(0.6f, 0.3f, 0.8f)));
                     }
                 }
 
-                // 17. Adversaire : Coups Critiques
+                // 
                 if (stat.Crits >= 3)
                 {
                     string title = Localization.GetStringById("debrief.enemy.crit_spammer.title") ?? "Adversaire : Coups Critiques";
@@ -295,10 +295,10 @@ namespace WotR_CombatMVP
                         .Replace("{name}", stat.Name)
                         .Replace("{crits}", stat.Crits.ToString());
 
-                    list.Add(new TacticalAdvice("🎯", title, desc, new Color(1.0f, 0.1f, 0.1f)));
+                    list.Add(new TacticalAdvice("crits", title, desc, new Color(1.0f, 0.1f, 0.1f)));
                 }
 
-                // 18. Adversaire : Dégâts Impies et Négatifs
+                // 
                 if (stat.UnholyDmg > (partyLevel * 10) || stat.NegativeDmg > (partyLevel * 10))
                 {
                     string title = Localization.GetStringById("debrief.enemy.unholy_dev.title") ?? "Adversaire : Dégâts Impies et Négatifs";
@@ -309,10 +309,10 @@ namespace WotR_CombatMVP
                         .Replace("{unholyDmg}", stat.UnholyDmg.ToString())
                         .Replace("{negativeDmg}", stat.NegativeDmg.ToString());
 
-                    list.Add(new TacticalAdvice("👿", title, desc, new Color(0.4f, 0.1f, 0.5f)));
+                    list.Add(new TacticalAdvice("unholy", title, desc, new Color(0.4f, 0.1f, 0.5f)));
                 }
 
-                // 19. Adversaire : Effets de Contrôle Appliqués
+                // 
                 int enemyCC = stat.CC_Paralyzed + stat.CC_Stunned + stat.CC_Frightened;
                 if (enemyCC >= 2)
                 {
@@ -323,10 +323,10 @@ namespace WotR_CombatMVP
                         .Replace("{name}", stat.Name)
                         .Replace("{ccCount}", enemyCC.ToString());
 
-                    list.Add(new TacticalAdvice("⛓️", title, desc, new Color(0.5f, 0.3f, 0.7f)));
+                    list.Add(new TacticalAdvice("cc", title, desc, new Color(0.5f, 0.3f, 0.7f)));
                 }
 
-                // 20. Adversaire : Drain de Niveaux et Caractéristiques
+                // 
                 if (stat.StatDamage >= 5 || stat.NegativeLevels >= 2)
                 {
                     string title = Localization.GetStringById("debrief.enemy.stat_destroyer.title") ?? "Adversaire : Drain de Niveaux et Caractéristiques";
@@ -337,10 +337,10 @@ namespace WotR_CombatMVP
                         .Replace("{statDamage}", stat.StatDamage.ToString())
                         .Replace("{negativeLevels}", stat.NegativeLevels.ToString());
 
-                    list.Add(new TacticalAdvice("🩸", title, desc, new Color(0.6f, 0.1f, 0.2f)));
+                    list.Add(new TacticalAdvice("blood", title, desc, new Color(0.6f, 0.1f, 0.2f)));
                 }
 
-                // 21. Adversaire : Attaques d'Opportunité
+                // 
                 if (stat.AoOs >= 3)
                 {
                     string title = Localization.GetStringById("debrief.enemy.aoo_executioner.title") ?? "Adversaire : Attaques d'Opportunité";
@@ -350,10 +350,10 @@ namespace WotR_CombatMVP
                         .Replace("{name}", stat.Name)
                         .Replace("{aoos}", stat.AoOs.ToString());
 
-                    list.Add(new TacticalAdvice("👣", title, desc, new Color(0.8f, 0.3f, 0.3f)));
+                    list.Add(new TacticalAdvice("aoos", title, desc, new Color(0.8f, 0.3f, 0.3f)));
                 }
 
-                // 22. Adversaire : Effet Aveuglé Appliqué
+                // 
                 if (stat.CC_Blinded >= 1)
                 {
                     string title = Localization.GetStringById("debrief.enemy.blindness_oppressor.title") ?? "Adversaire : Effet Aveuglé Appliqué";
@@ -363,10 +363,10 @@ namespace WotR_CombatMVP
                         .Replace("{name}", stat.Name)
                         .Replace("{blindedCount}", stat.CC_Blinded.ToString());
 
-                    list.Add(new TacticalAdvice("👓", title, desc, new Color(0.4f, 0.4f, 0.4f)));
+                    list.Add(new TacticalAdvice("blindness", title, desc, new Color(0.4f, 0.4f, 0.4f)));
                 }
 
-                // 23. Adversaire : Dégâts sur Cibles à Terre
+                // 
                 int physicalCombatDmg = stat.SlashingDmg + stat.PiercingDmg + stat.BludgeoningDmg;
                 if (stat.CC_Prone >= 1 && physicalCombatDmg > (partyLevel * 15))
                 {
@@ -377,10 +377,10 @@ namespace WotR_CombatMVP
                         .Replace("{name}", stat.Name)
                         .Replace("{physicalDmg}", physicalCombatDmg.ToString());
 
-                    list.Add(new TacticalAdvice("⚔️", title, desc, new Color(0.8f, 0.1f, 0.2f)));
+                    list.Add(new TacticalAdvice("prone_damage", title, desc, new Color(0.8f, 0.1f, 0.2f)));
                 }
 
-                // 24. Adversaire : Soins Vampiriques
+                // 
                 if (stat.VampiricHealing > (partyLevel * 5))
                 {
                     string title = Localization.GetStringById("debrief.enemy.vampiric_siphon.title") ?? "Adversaire : Soins Vampiriques";
@@ -390,10 +390,10 @@ namespace WotR_CombatMVP
                         .Replace("{name}", stat.Name)
                         .Replace("{vampiricHealing}", stat.VampiricHealing.ToString());
 
-                    list.Add(new TacticalAdvice("🩸", title, desc, new Color(0.8f, 0.2f, 0.1f)));
+                    list.Add(new TacticalAdvice("vampiric", title, desc, new Color(0.8f, 0.2f, 0.1f)));
                 }
 
-                // 25. Adversaire : Attaques Sournoises Invisibles
+                // 
                 if (stat.SneakAttackDmg > (partyLevel * 15))
                 {
                     string title = Localization.GetStringById("debrief.enemy.sneaky_assassin.title") ?? "Adversaire : Attaques Sournoises Invisibles";
@@ -403,7 +403,7 @@ namespace WotR_CombatMVP
                         .Replace("{name}", stat.Name)
                         .Replace("{sneakAttackDmg}", stat.SneakAttackDmg.ToString());
 
-                    list.Add(new TacticalAdvice("🕵️", title, desc, new Color(0.2f, 0.2f, 0.3f)));
+                    list.Add(new TacticalAdvice("sneak", title, desc, new Color(0.2f, 0.2f, 0.3f)));
                 }
             }
 
