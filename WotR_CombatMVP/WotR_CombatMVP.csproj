@@ -7,7 +7,7 @@
     <GamePath>D:\TEST NEW PATHFINDER WOTR\Pathfinder Second Adventure</GamePath>
     <AssemblyName>WotR_CombatMVP</AssemblyName>
     <RootNamespace>WotR_CombatMVP</RootNamespace>
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -75,19 +75,19 @@
     <!-- 1. Créer le dossier temporaire propre de staging -->
     <MakeDir Directories="$(MSBuildProjectDirectory)\bin\Staging\Combat Metrics &amp; Accolades" />
     
-    <!-- 2. Copier uniquement les fichiers du code, des métadonnées, de licence et le README -->
+    <!-- 2. Copier uniquement les fichiers du code, des métadonnées, de licence et le README à la racine -->
     <Copy SourceFiles="$(TargetDir)WotR_CombatMVP.dll"
-      DestinationFolder="$(MSBuildProjectDirectory)\bin\Staging\Combat Metrics &amp; Accolades" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\Combat Metrics &amp; Accolades\Info.json"
           DestinationFolder="$(MSBuildProjectDirectory)\bin\Staging\Combat Metrics &amp; Accolades" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\Combat Metrics &amp; Accolades\LICENSE.txt"
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\Info.json"
           DestinationFolder="$(MSBuildProjectDirectory)\bin\Staging\Combat Metrics &amp; Accolades" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\Combat Metrics &amp; Accolades\README.md"
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\LICENSE.txt"
+          DestinationFolder="$(MSBuildProjectDirectory)\bin\Staging\Combat Metrics &amp; Accolades" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\README.md"
           DestinationFolder="$(MSBuildProjectDirectory)\bin\Staging\Combat Metrics &amp; Accolades" />
     
     <!-- 3. Copier le sous-dossier de traductions vers le dossier de staging -->
     <ItemGroup>
-      <LocFiles Include="$(MSBuildProjectDirectory)\Combat Metrics &amp; Accolades\Localization\**\*.*" />
+      <LocFiles Include="$(MSBuildProjectDirectory)\Localization\**\*.*" />
     </ItemGroup>
     <Copy SourceFiles="@(LocFiles)"
           DestinationFolder="$(MSBuildProjectDirectory)\bin\Staging\Combat Metrics &amp; Accolades\Localization\%(RecursiveDir)" />
@@ -99,6 +99,6 @@
 
     <!-- 5. Nettoyer proprement le dossier temporaire de staging après la compression -->
     <RemoveDir Directories="$(MSBuildProjectDirectory)\bin\Staging" />
-  </Target>
+</Target>
 
 </Project>

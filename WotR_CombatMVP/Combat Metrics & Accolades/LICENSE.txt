@@ -1,0 +1,39 @@
+================================================================================
+                   LICENSE - Combat Metrics & Accolades (WotR_CombatMVP)
+================================================================================
+Copyright (c) 2026 LilithSeven. All rights reserved.
+
+This software (the "Mod") is provided under a custom "Closed Permissions, 
+Open Source" license. This is designed to respect the collaborative spirit of 
+the modding community while strictly protecting the author's original work.
+
+1. OWNERSHIP
+The Mod, including its binary code, mathematical balancing systems (such as 
+the CR calculations), and custom UI layouts, remains the intellectual property 
+of LilithSeven.
+
+2. PERMISSIONS (What you CAN do)
+- Learn & Inspect: You are fully welcome to decompile, inspect, or study the 
+  source code for personal learning or to understand how the engine's API is utilized.
+- Compatibility: You may create compatibility patches, addons, or extensions that 
+  interact with this Mod, provided they do not duplicate this Mod's core files.
+
+3. RESTRICTIONS (What you CANNOT do)
+- No Redistribution: You are strictly prohibited from re-uploading, mirroring, 
+  or distributing this Mod (or modified versions of it) on Nexus Mods, GitHub, 
+  or any other website/platform.
+- No Plagiarism: You may not copy, rip, or reuse the core logic, algorithms, 
+  or UI elements to create your own standalone mod without explicit written 
+  consent from LilithSeven.
+- No Commercial Use: This Mod may not be sold or monetized in any way.
+
+4. EXCLUSIVE DISTRIBUTION
+This Mod is exclusively authorized for hosting on Nexus Mods under the profile:
+LilithSeven (https://www.nexusmods.com/profile/LilithSeven).
+
+5. WARRANTY & LIABILITY
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+IMPLIED. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR 
+OTHER LIABILITY ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR 
+THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+================================================================================

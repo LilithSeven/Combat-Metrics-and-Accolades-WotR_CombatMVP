@@ -9,6 +9,7 @@ namespace WotR_CombatMVP
         // Définit la vue Analyse Tactique par défaut pour les nouvelles installations, 
         // tout en préservant le fichier settings.json existant des anciens utilisateurs lors de la désérialisation.
         public bool ShowDebriefView { get; set; } = true; 
+        public float UiScale { get; set; } = 0.9f; // --- NOUVEAU : Option d'échelle d'affichage de l'UI --- 
     }
 
     public static class SettingsManager

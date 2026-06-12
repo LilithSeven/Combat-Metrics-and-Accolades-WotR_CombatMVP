@@ -93,7 +93,7 @@ namespace WotR_CombatMVP
         /// <summary>
         /// Extrait et formate une chaîne de caractères en remplaçant les jetons dynamiques de genre, d'accord et d'environnement.
         /// </summary>
-        public static string GetFormatted(string key, UnitCombatStats stat, string divineLore, string divineLoreSubject, string damage = null, string kills = null, string extra = null)
+        public static string GetFormatted(string key, UnitCombatStats stat, string damage = null, string kills = null, string extra = null)
         {
             string template = GetStringById(key);
             if (string.IsNullOrEmpty(template)) return key;
@@ -122,8 +122,6 @@ namespace WotR_CombatMVP
             template = template.Replace("{pronounObj}", pronounObj);
             template = template.Replace("{accord}", accord);
             template = template.Replace("{titlePrefix}", titlePrefix);
-            template = template.Replace("{divineLore}", divineLore ?? "");
-            template = template.Replace("{divineLoreSubject}", divineLoreSubject ?? "");
 
             // --- INJECTIONS DYNAMIQUES NOMINATIVES ET TÉLÉMÉTRIQUES ---
             template = template.Replace("{name}", stat.Name ?? "");
@@ -146,6 +144,25 @@ namespace WotR_CombatMVP
             template = template.Replace("{healingDone}", (stat.HealingDone + stat.VampiricHealing).ToString());
             template = template.Replace("{crits}", stat.Crits.ToString());
             template = template.Replace("{aoos}", stat.AoOs.ToString());
+			// --- INJECTIONS COMPLÉMENTAIRES POUR LES IMPRESSIVE ACHIEVEMENTS ---
+            template = template.Replace("{maxSingleHit}", stat.MaxSingleHit.ToString());
+            template = template.Replace("{vampiricHealing}", stat.VampiricHealing.ToString());
+            template = template.Replace("{statDamage}", stat.StatDamage.ToString());
+            template = template.Replace("{negativeLevels}", stat.NegativeLevels.ToString());
+            template = template.Replace("{summonsCount}", stat.SummonsCount.ToString());
+            template = template.Replace("{summonDamage}", stat.SummonDamage.ToString());
+            template = template.Replace("{dispelledCount}", stat.DispelledCount.ToString());
+            template = template.Replace("{trippedCount}", stat.TrippedCount.ToString());
+            template = template.Replace("{scrollsCast}", stat.ScrollsCastCount.ToString());
+            template = template.Replace("{supportBuffsCast}", stat.SupportBuffsCast.ToString());
+
+            // Calcul dynamique unifié du cumul des Crowd Control (CC) appliqués
+            int totalCC = stat.CC_Prone + stat.CC_Paralyzed + stat.CC_Stunned + stat.CC_Frightened + 
+                          stat.CC_Shaken + stat.CC_Cowering + stat.CC_Nauseated + stat.CC_Sickened + 
+                          stat.CC_Blinded + stat.CC_Entangled + stat.CC_Confused + stat.CC_Exhausted + 
+                          stat.CC_Fatigued + stat.CC_Slowed + stat.CC_Staggered + stat.CC_Dazed + 
+                          stat.CC_Dazzled + stat.CC_Helpless + stat.CC_Cowering + stat.CC_DeathsDoor;
+            template = template.Replace("{totalCC}", totalCC.ToString());
 
             // Remplacements historiques pour rétrocompatibilité
             if (damage != null) template = template.Replace("{damage}", damage);
