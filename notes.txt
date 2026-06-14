@@ -1,10 +1,2 @@
-
-  - Added a search bar filtering sheets by name
-  - Added a detailed breakdown of base rolls, modifiers, and reductions for each hit
-  - Added a log of spells/Abilities successfully saved against by enemies
-  - Adjusted text spacing and column alignment
-  - Added a real-time UI font scale slider
-  - Updated and corrected some terms across all 8 supported languages
-  - Some others fixes
-  - Achievements display mode is temporarily disabled due to ongoing deep work
-
+ - Before, if you opened the UI (Alt + M) before any combat data showed up, the mod just quietly ignored your command. Now the UI always opens when you ask. If there’s no combat data yet, you get a “Empty State” message.
+ - Some fixes, for more stats details.
