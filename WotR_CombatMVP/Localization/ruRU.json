@@ -2,6 +2,8 @@
  "strings": {
   "ui.dmg.details_header": "Подробности нанесенного урона:",
   "ui.search.filter_label": "Фильтр:",
+  "ui.empty.title": "Нет записанных данных о боях.",
+  "ui.empty.subtitle": "(Панель автоматически заполнится после следующего боя)",
   "ui.search.no_match": "Не найдено листов боя, соответствующих вашему запросу.",
   "ui.telemetry.killed_foes": "Уничтоженные цели:",
   "ui.telemetry.damage_modifiers_audit": "Подробности нанесенного урона (с модификаторами)",
@@ -105,7 +107,7 @@
   "ui.misc.summons_report": "<b>Вклад призванных существ:</b> <color={0}>{1} урона | {2} убийств</color>",
   "ui.misc.heroic_ach": "ВЫДАЮЩИЕСЯ ДОСТИЖЕНИЯ",
   "ui.misc.mythic_ach": "ВЫДАЮЩИЕСЯ / МИФИЧЕСКИЕ ДОСТИЖЕНИЯ",
-  "ui.misc.no_feats": "Нечего отобразить.",
+  "ui.misc.no_feats": "Новые достижения скоро появятся!",
   "ui.misc.folder_index": "Запись {0} из {1}",
   "ui.context.single_boss": "сосредоточено на главном противнике с ОП {0}",
   "ui.context.multi_targets": "распределено по множеству враждебных целей",

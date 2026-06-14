@@ -145,6 +145,7 @@ public class UnitCombatStats
         public int SavesRefFailed = 0;
         public int SavesWillFailed = 0;
         public int SpellsResistedCount = 0;
+		public int SpellsPenetratedCount = 0; // <-- NOUVEAU : Sorts ayant physiquement percé la RM ennemie
         public int TimesDowned = 0;
         
         // --- NOUVELLES MÉTRIQUES ULTRA-CIBLÉES ---
@@ -165,7 +166,14 @@ public class UnitCombatStats
             DamageTaken > 0 ||
             AttacksDodged > 0 ||
             SummonDamage > 0 ||
-            SummonKills > 0;
+            SummonKills > 0 ||
+            SupportBuffsCast > 0 ||
+            FriendlyFireDmg > 0 ||
+            DispelledCount > 0 ||
+            TrippedCount > 0 ||
+            ResurrectedCount > 0 ||
+            ScrollsCastCount > 0 ||
+            IconicSpellsCast > 0;
         
         // --- SUIVI CONTEXTUEL MONO-CIBLE VS AOE ---
         public float WeightedNegativeLevels = 0f;
@@ -345,13 +353,10 @@ public class UnitCombatStats
             // AJOUT DU DOUBLE RACCOURCI IMMUNISÉ CONTRE LES REGLAGES OS : Alt + Space OU Alt + M
             if ((Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt)) && (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.M)))
             {
-                if (Main.Tracker == null || Main.Tracker.combatStats.Count == 0)
-                {
-                    Main.Logger.Log("[CombatMVP] Impossible d'ouvrir l'interface : aucun combat n'a encore ete enregistre dans cette zone.");
-                    showWindow = false;
-                    if (invisibleGlassWall != null) invisibleGlassWall.SetActive(false);
-                    return; 
-                }
+                // CORRECTION UX : On ne bloque plus l'ouverture si combatStats.Count == 0. 
+                // On laisse l'UI s'ouvrir pour montrer au joueur que le mod fonctionne bien !
+                if (Main.Tracker == null) return; 
+
                 showWindow = !showWindow;
                 EnsureUIInitialized();
                 if (invisibleGlassWall != null) invisibleGlassWall.SetActive(showWindow);
@@ -436,30 +441,20 @@ public class UnitCombatStats
         private Texture2D GetPortraitTexture(UnitCombatStats stat)
         {
             if (stat.UnitData == null || stat.UnitData.Portrait == null) return null;
+            
+            // Accès direct natif. Le moteur d'Owlcat gère lui-même le chargement (SpriteLink).
+            // Zéro réflexion, zéro allocation de mémoire superflue.
             var portrait = stat.UnitData.Portrait;
-            Type type = portrait.GetType();
-            
-            // Priorité absolue aux grands formats, puis replis successifs en cas d'absence
-            string[] possibleNames = { 
-                "FullLengthPortrait", 
-                "FullLengthImage", 
-                "HalfLengthPortrait", 
-                "HalfLengthImage", 
-                "HalfPortrait", 
-                "SmallPortrait", 
-                "SmallImage" 
-            };
-            
-            foreach (var name in possibleNames)
-            {
-                var prop = type.GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
-                if (prop != null)
-                {
-                    var val = prop.GetValue(portrait);
-                    if (val is Sprite s && s.texture != null) return s.texture;
-                    if (val is Texture2D t) return t;
-                }
-            }
+
+            if (portrait.FullLengthPortrait != null && portrait.FullLengthPortrait.texture != null)
+                return portrait.FullLengthPortrait.texture;
+
+            if (portrait.HalfLengthPortrait != null && portrait.HalfLengthPortrait.texture != null)
+                return portrait.HalfLengthPortrait.texture;
+
+            if (portrait.SmallPortrait != null && portrait.SmallPortrait.texture != null)
+                return portrait.SmallPortrait.texture;
+
             return null;
         }
 		
@@ -524,12 +519,15 @@ public class UnitCombatStats
 
         void OnGUI()
         {
-            if (!showWindow || allCombatants.Count == 0) return;
+            // CORRECTION UX : On ne fait plus de return si allCombatants.Count == 0
+            if (!showWindow) return; 
             EnsureUIInitialized();
             
-            // Si la recherche ne donne rien, on se replie sur le fond d'écran du premier combattant
-            UnitCombatStats currentStat = filteredCombatants.Count > 0 ? filteredCombatants[currentPageIndex] : allCombatants[0];
-            
+            // Sécurisation de la cible courante
+            UnitCombatStats currentStat = null;
+            if (filteredCombatants.Count > 0) currentStat = filteredCombatants[currentPageIndex];
+            else if (allCombatants.Count > 0) currentStat = allCombatants[0];
+
             // 1. Dessin du fond d'écran à la résolution native d'origine (empêche le flou de texture)
             fullScreenRect = new Rect(0, 0, Screen.width, Screen.height);
             Texture2D activeBg = GetDynamicBackground(currentStat);
@@ -575,7 +573,15 @@ public class UnitCombatStats
             Rect contentArea = new Rect(safeArea.x + 20f, safeArea.y + 15f, safeArea.width - 40f, safeArea.height - 30f);
 
             GUILayout.BeginArea(contentArea);
-            DrawBookLayout(contentArea.width, contentArea.height);
+            if (currentStat != null)
+            {
+                DrawBookLayout(contentArea.width, contentArea.height);
+            }
+            else
+            {
+                // Affiche l'écran "Vide" élégant si aucun combat n'a eu lieu
+                DrawEmptyState(contentArea.width, contentArea.height);
+            }
             GUILayout.EndArea();
 			
             // Dessin des boutons fléchés également mis à l'échelle pour éviter tout débordement d'écran
@@ -604,12 +610,16 @@ public class UnitCombatStats
 
         private void DrawNavigationButtons(float width, float height)
         {
-            GUIStyle navStyle = new GUIStyle(GUI.skin.button) { fontSize = 36, fontStyle = FontStyle.Bold };
-            navStyle.normal.textColor = new Color(0.7686f, 0.6353f, 0.3961f); 
-            if (currentPageIndex > 0)
-                if (GUI.Button(new Rect(30, height / 2 - 40, 50, 80), "<", navStyle)) { currentPageIndex--; scrollPosition = Vector2.zero; }
-            if (currentPageIndex < filteredCombatants.Count - 1)
-                if (GUI.Button(new Rect(width - 80, height / 2 - 40, 50, 80), ">", navStyle)) { currentPageIndex++; scrollPosition = Vector2.zero; }
+            // SÉCURITÉ : Ne dessiner les flèches que s'il y a des données
+            if (filteredCombatants != null && filteredCombatants.Count > 0)
+            {
+                GUIStyle navStyle = new GUIStyle(GUI.skin.button) { fontSize = 36, fontStyle = FontStyle.Bold };
+                navStyle.normal.textColor = new Color(0.7686f, 0.6353f, 0.3961f); 
+                if (currentPageIndex > 0)
+                    if (GUI.Button(new Rect(30, height / 2 - 40, 50, 80), "<", navStyle)) { currentPageIndex--; scrollPosition = Vector2.zero; }
+                if (currentPageIndex < filteredCombatants.Count - 1)
+                    if (GUI.Button(new Rect(width - 80, height / 2 - 40, 50, 80), ">", navStyle)) { currentPageIndex++; scrollPosition = Vector2.zero; }
+            }
 
             GUIStyle closeStyle = new GUIStyle(GUI.skin.button) { fontSize = 28, fontStyle = FontStyle.Bold };
             closeStyle.normal.textColor = new Color(0.6196f, 0.1059f, 0.1059f);
@@ -618,6 +628,31 @@ public class UnitCombatStats
                 showWindow = false;
                 if (invisibleGlassWall != null) invisibleGlassWall.SetActive(false);
             }
+        }
+		
+		private void DrawEmptyState(float width, float height)
+        {
+            GUILayout.BeginVertical(GUILayout.Width(width), GUILayout.Height(height));
+            GUILayout.FlexibleSpace();
+            GUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            
+            GUIStyle emptyStyle = new GUIStyle(GUI.skin.label) {
+                fontSize = 32,
+                alignment = TextAnchor.MiddleCenter,
+                richText = true
+            };
+            
+            // Appel propre au système de localisation
+            string title = Localization.GetStringById("ui.empty.title") ?? "No combat data recorded.";
+            string subtitle = Localization.GetStringById("ui.empty.subtitle") ?? "(The dashboard will populate automatically after your next battle)";
+            
+            GUILayout.Label($"<color=#C4A265><b>{title}</b></color>\n\n<size=24><color=#E2D5B5><i>{subtitle}</i></color></size>", emptyStyle);
+            
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            GUILayout.FlexibleSpace();
+            GUILayout.EndVertical();
         }
 
         public void ResetUI()
@@ -777,7 +812,7 @@ public class UnitCombatStats
                         {
                             isUndeadType = true;
                         }
-                        else if (currentStat.UnitData.Descriptor?.Progression != null)
+                        else if (currentStat.UnitData.Descriptor?.Progression?.Classes != null) // <-- PROTECTION AJOUTÉE ICI
                         {
                             foreach (var cls in currentStat.UnitData.Descriptor.Progression.Classes)
                             {
@@ -906,7 +941,7 @@ public class UnitCombatStats
 // ====================================================================
             // LOGIQUE DE SEGMENTATION TÉLÉMÉTRIQUE EN 4 SECTIONS CLAIRES ET STRUCTURÉES
             // ====================================================================
-            int totalCC = currentStat.CC_Prone + currentStat.CC_Paralyzed + currentStat.CC_Stunned + currentStat.CC_Frightened + currentStat.CC_Shaken + currentStat.CC_Cowering + currentStat.CC_Nauseated + currentStat.CC_Sickened + currentStat.CC_Blinded + currentStat.CC_Entangled + currentStat.CC_Confused + currentStat.CC_Exhausted + currentStat.CC_Fatigued + currentStat.CC_Slowed + currentStat.CC_Staggered + currentStat.CC_Petrified + currentStat.CC_Asleep + currentStat.CC_Dazed + currentStat.CC_Dazzled + currentStat.CC_Helpless + currentStat.CC_Cowering + currentStat.CC_DeathsDoor;
+            int totalCC = currentStat.CC_Prone + currentStat.CC_Paralyzed + currentStat.CC_Stunned + currentStat.CC_Frightened + currentStat.CC_Shaken + currentStat.CC_Nauseated + currentStat.CC_Sickened + currentStat.CC_Blinded + currentStat.CC_Entangled + currentStat.CC_Confused + currentStat.CC_Exhausted + currentStat.CC_Fatigued + currentStat.CC_Slowed + currentStat.CC_Staggered + currentStat.CC_Petrified + currentStat.CC_Asleep + currentStat.CC_Dazed + currentStat.CC_Dazzled + currentStat.CC_Helpless + currentStat.CC_Cowering + currentStat.CC_DeathsDoor;
 
             bool drawOffense = currentStat.TotalDamage > 0 || currentStat.SummonDamage > 0 || currentStat.Kills > 0;
             bool drawDefense = currentStat.DamageTaken > 0 || currentStat.AttacksDodged > 0 || currentStat.TimesDowned > 0;
@@ -984,8 +1019,8 @@ public class UnitCombatStats
                 
                 if (attacksDirected > 0)
                 {
-                    string evasionLabel = Localization.GetStringById("ui.telemetry.evasion_label") ?? "Physical Evasion:";
-                    string dodgesLabel = Localization.GetStringById("ui.telemetry.dodges_label") ?? "evasions";
+                    string evasionLabel = Localization.GetStringById("ui.telemetry.evasion_label") ?? "Attacks evaded:";
+                    string dodgesLabel = Localization.GetStringById("ui.telemetry.dodges_label") ?? "successes";
                     GUILayout.Label($"  • <color={colText}>{evasionLabel}</color> <color={colTitle}><b>{currentStat.AttacksDodged} / {attacksDirected}</b></color> {dodgesLabel} ({evaPct}%)", detailStyle);
                 }
                 if (currentStat.TimesDowned > 0)
@@ -1754,7 +1789,9 @@ public class UnitCombatStats
 
                     // 3. ATTRIBUTION DES PALIERS
                     bool isMinorSkirmish = totalEnemyHPAtStart < (currentPartyLevel * 40);
-                    if (stat.IsAlly && isMinorSkirmish && myTotalDmg == 0 && myTotalHeal == 0 && stat.DamageTaken == 0 && stat.AttacksDodged == 0 && stat.Kills == 0 && stat.InstaKills == 0)
+                    
+                    // UTILISATION DE LA PROPRIÉTÉ GLOBALE HasRealContribution POUR UNE VÉRIFICATION ÉTANCHE
+                    if (stat.IsAlly && isMinorSkirmish && !stat.HasRealContribution)
                     {
                         stat.Grade = "R"; // Réserve Tactique (Aucune pénalité)
                     }
@@ -1820,6 +1857,7 @@ public class UnitCombatStats
                     bool isTheMVP = (stat == absoluteMVP); 
                     stat.Achievements.Clear();
 
+                    
                     string category = "Ally";
                     if (stat.UnitData != null)
                     {
@@ -1830,8 +1868,8 @@ public class UnitCombatStats
                     {
                         category = "Enemy";
                     }
-
                     AchievementDatabase.GrantAchievements(stat, baselineEffort, isTheMVP, category);
+                    
                 }
             }
             catch (Exception ex)
@@ -1887,7 +1925,9 @@ public class UnitCombatStats
         {
             try
             {
-                if (!isCombatActive || evt.Initiator == null || evt.Target == null) return;
+                // AJOUT CRITIQUE : Ignorer les événements "Fake" (prédictions des infobulles du jeu)
+                if (!isCombatActive || evt.IsFake || evt.Initiator == null || evt.Target == null) return;
+                
                 int damage = evt.Result; 
                 if (damage <= 0) return;
 
@@ -2027,27 +2067,36 @@ public class UnitCombatStats
                     float unscaledCritDiceVal = (float)critDiceContrib * tacticalCritMod * H;
                     
                     float unscaledBaseEffectVal = (float)baseEffectBonus * unitsCount * (critToBonus ? critMult : 1) * tacticalCritMod * H;
-                    float unscaledTargetRelatedVal = (float)sourceDamage.BonusTargetRelated * unitsCount * (critToBonus ? critMult : 1) * H;
-                    float unscaledPostCritBonusVal = (float)sourceDamage.PostCritIncrements.OverallBonus * unitsCount * H;
                     
+                    // CORRECTION ABSOLUE : TargetRelatedBonus n'est PAS affecté par le TacticalCriticalModifier chez Owlcat
+                    float unscaledTargetRelatedVal = (float)sourceDamage.BonusTargetRelated * unitsCount * (critToBonus ? critMult : 1) * H;
+                    
+                    // CORRECTION ABSOLUE : PostCritIncrements n'est affecté NI par le critique, NI par le TacticalCriticalModifier
+                    float unscaledPostCritBonusVal = (float)sourceDamage.PostCritIncrements.OverallBonus * unitsCount * H;
 
                     // Apport brut du coup critique sur les bonus plats
                     float critBonusContrib = 0f;
                     if (critToBonus && critMult > 1)
                     {
-                        critBonusContrib = (float)(sourceDamage.Bonus + sourceDamage.BonusTargetRelated) * unitsCount * (critMult - 1) * H;
+                        // Séparation stricte car baseEffect prend le multiplicateur tactique, mais pas TargetRelated
+                        float critOnBaseEffect = (float)baseEffectBonus * unitsCount * (critMult - 1) * tacticalCritMod * H;
+                        float critOnTargetRelated = (float)sourceDamage.BonusTargetRelated * unitsCount * (critMult - 1) * H;
+                        critBonusContrib = critOnBaseEffect + critOnTargetRelated;
                     }
                     float critUnempowered = unscaledCritDiceVal + critBonusContrib;
 
-                    // Somme des composants non-amplifiés par l'Extension d'effet
-                    float unempoweredSum = unscaledBaseDiceVal + unscaledBaseEffectVal + unscaledTargetRelatedVal + unscaledPostCritBonusVal + critUnempowered;
+                    // Somme des modificateurs de build (qui font partie du "Bonus" standard, donc affectés par TacticalCritMod)
+                    float modifiersSumUnempowered = 0f;
                     if (sourceDamage.Modifiers != null)
                     {
                         foreach (var mod in sourceDamage.Modifiers)
                         {
-                            unempoweredSum += (float)mod.Value * unitsCount * (critToBonus ? critMult : 1) * tacticalCritMod * H;
+                            modifiersSumUnempowered += (float)mod.Value * unitsCount * (critToBonus ? critMult : 1) * tacticalCritMod * H;
                         }
                     }
+
+                    // Somme totale pour le calcul de l'Empower (Extension d'effet)
+                    float unempoweredSum = unscaledBaseDiceVal + unscaledBaseEffectVal + unscaledTargetRelatedVal + unscaledPostCritBonusVal + critUnempowered + modifiersSumUnempowered;
 
                     // 4. Isolation des apports des multiplicateurs finaux
                     float empowerContribution = 0f;
@@ -2068,8 +2117,18 @@ public class UnitCombatStats
                         vulnerabilityContribution = (unempoweredSum * num4 * (1f + (float)sourceDamage.BonusPercent / 100f)) * (sourceDamage.Vulnerability - 1f);
                     }
 
+                    float num8 = unempoweredSum * num4 + percentContribution + vulnerabilityContribution;
+
+                    // --- CORRECTION : Capture du multiplicateur global de l'événement (ModifierBonus) ---
+                    float globalModifiersSum = 0f;
+                    float evtModifierBonus = evt.ModifierBonus ?? 0f;
+                    if (evtModifierBonus != 0f)
+                    {
+                        globalModifiersSum = num8 * evtModifierBonus;
+                    }
+
                     // Somme théorique totale générée pour ce fragment de dégât
-                    float sumFloat = unempoweredSum * num4 + percentContribution + vulnerabilityContribution;
+                    float sumFloat = num8 + globalModifiersSum;
 
                     // Résolution du ratio de contribution par rapport à ValueWithoutReduction d'Owlcat
                     float finalRatio = sumFloat > 0f ? (float)dv.ValueWithoutReduction / sumFloat : 0f;
@@ -2125,34 +2184,67 @@ public class UnitCombatStats
                         }
                     }
 
+                    // --- CORRECTION : Attribution du multiplicateur global ---
+                    if (evtModifierBonus != 0f)
+                    {
+                        float globalRawVal = num8 * evtModifierBonus;
+                        float scaledGlobalVal = globalRawVal * finalRatio * diffMod;
+                        int roundedGlobalVal = (int)Math.Round(scaledGlobalVal);
+                        if (roundedGlobalVal != 0)
+                        {
+                            string modName = Localization.GetStringById("ui.dmg.audit_global_mod") ?? "Multiplicateur global d'événement";
+                            
+                            if (auditDict.ContainsKey(modName)) auditDict[modName] += roundedGlobalVal;
+                            else auditDict[modName] = roundedGlobalVal;
+                            
+                            sumAddedThisTrigger += roundedGlobalVal;
+                            sumOfAuditedComponentsForChunk += roundedGlobalVal;
+                        }
+                    }
+
                     // 5. Réconciliation locale du fragment (DR, Dureté, et arrondis internes)
                     int finalScaledChunkValue = (sourceDamage.Type == DamageType.Direct || evt.Initiator.IsPlayerFaction)
                         ? finalForChunk
                         : Math.Max(1, (int)(finalForChunk * evt.DifficultyModifier));
 
+                    // --- NOUVEAU : Extraction absolue de la Réduction de Dégâts (DR / Résistance / Dureté) ---
+                    int reductionValue = dv.Reduction;
+                    if (reductionValue > 0)
+                    {
+                        int scaledReduction = (int)Math.Round((float)reductionValue * diffMod);
+                        if (scaledReduction > 0)
+                        {
+                            string drLabel = Localization.GetStringById("ui.dmg.audit_dr") ?? "Absorption (Résistance / Dureté)";
+                            if (auditDict.ContainsKey(drLabel)) auditDict[drLabel] -= scaledReduction;
+                            else auditDict[drLabel] = -scaledReduction;
+                            
+                            sumAddedThisTrigger -= scaledReduction;
+                            sumOfAuditedComponentsForChunk -= scaledReduction;
+                        }
+                    }
+
+                    // Arrondis internes et ajustements structurels restants
                     int reconciliationDiff = finalScaledChunkValue - sumOfAuditedComponentsForChunk;
                     if (reconciliationDiff != 0)
                     {
-                        string reductionLabel = Localization.GetStringById("ui.dmg.audit_reduction") ?? "Réduction de dégâts (RD) / Autres sources";
-                        if (auditDict.ContainsKey(reductionLabel)) auditDict[reductionLabel] += reconciliationDiff;
-                        else auditDict[reductionLabel] = reconciliationDiff;
+                        string roundingLabel = Localization.GetStringById("ui.dmg.audit_rounding") ?? "Ajustements & Arrondis de calcul";
+                        if (auditDict.ContainsKey(roundingLabel)) auditDict[roundingLabel] += reconciliationDiff;
+                        else auditDict[roundingLabel] = reconciliationDiff;
                         
                         sumAddedThisTrigger += reconciliationDiff;
                     }
                 }
 
                 // 6. RÉCONCILIATION GLOBALE FINALE DE L'ÉVÉNEMENT (Capping & Redirections)
-                // Élimine toute dérive de précision en confrontant la somme de l'audit à la valeur réelle 'evt.Result'
                 int actualTriggerDamage = damage; // evt.Result
                 int globalDiff = actualTriggerDamage - sumAddedThisTrigger;
                 if (globalDiff != 0 && lastProcessedKey != null && stats.DamageModifiersAudit.ContainsKey(lastProcessedKey))
                 {
                     var lastAuditDict = stats.DamageModifiersAudit[lastProcessedKey];
-                    string reductionLabel = Localization.GetStringById("ui.dmg.audit_reduction") ?? "Réduction de dégâts (RD) / Autres sources";
-                    if (lastAuditDict.ContainsKey(reductionLabel)) lastAuditDict[reductionLabel] += globalDiff;
-                    else lastAuditDict[reductionLabel] = globalDiff;
+                    string cappingLabel = Localization.GetStringById("ui.dmg.audit_capping") ?? "Plafonnement des PV / Redirection";
+                    if (lastAuditDict.ContainsKey(cappingLabel)) lastAuditDict[cappingLabel] += globalDiff;
+                    else lastAuditDict[cappingLabel] = globalDiff;
                 }
-                // --- FIN DE LA RÉCONCILIATION MATHÉMATIQUE ---
 
                 
 
@@ -2226,7 +2318,15 @@ public class UnitCombatStats
                 Main.Logger.Error("[CombatMVP] Erreur dans OnEventDidTrigger(RuleDealDamage) : " + ex);
             }
         }
-		public void OnEventAboutToTrigger(RuleAttackRoll evt) { }
+		public void OnEventAboutToTrigger(RuleAttackRoll evt) 
+        { 
+            // Sécurité Mémoire & Morts Fantômes : Dès qu'une nouvelle attaque physique démarre, 
+            // la fenêtre d'opportunité d'une "mort magique subite" précédente est révolue. On purge.
+            if (doomedTargets.Count > 0)
+            {
+                doomedTargets.Clear();
+            }
+        }
 
         public void OnEventDidTrigger(RuleAttackRoll evt)
         {
@@ -2486,26 +2586,29 @@ public class UnitCombatStats
         {
             try
             {
-                if (!isCombatActive || evt.Initiator == null || evt.Spell?.Blueprint == null) return;
-                string spellName = evt.Spell.Blueprint.name != null ? evt.Spell.Blueprint.name.ToLower() : "";
+                // On inclut bien la sécurité evt.IsCutscene de l'étape précédente
+                if (!isCombatActive || evt.IsCutscene || evt.Initiator == null || evt.Spell?.Blueprint == null) return;
+                
+                string spellName = evt.Spell.Blueprint.name;
                 if (string.IsNullOrEmpty(spellName)) return;
 
-                if (spellName.Contains("weird") || spellName.Contains("phantasmalkiller") || spellName.Contains("absolutedeath"))
+                // ZÉRO ALLOCATION MÉMOIRE : Utilisation de IndexOf sans ToLower()
+                if (spellName.IndexOf("weird", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                    spellName.IndexOf("phantasmalkiller", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                    spellName.IndexOf("absolutedeath", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    spellName.IndexOf("wailof", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     var stats = GetOrAddStats(evt.Initiator, out _);
-                    if (stats != null) stats.IconicSpellsCast++;
-                }
-				if (spellName.Contains("weird") || spellName.Contains("phantasmalkiller") || spellName.Contains("absolutedeath"))
-                {
-                    var stats = GetOrAddStats(evt.Initiator, out _);
-                    if (stats != null) stats.IconicSpellsCast++;
+                    if (stats != null) stats.IconicSpellsCast++; // <-- COMPTABILISÉ UNIQUEMENT ICI (À L'INCANTATION)
                 }
 
                 // Enregistrement des parchemins consommés de niveau 7+ et résurrections actives
                 var statsCast = GetOrAddStats(evt.Initiator, out _);
                 if (statsCast != null)
                 {
-                    if (spellName.Contains("raisedead") || spellName.Contains("resurrection") || spellName.Contains("breathoflife"))
+                    if (spellName.IndexOf("raisedead", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                        spellName.IndexOf("resurrection", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                        spellName.IndexOf("breathoflife", StringComparison.OrdinalIgnoreCase) >= 0)
                     {
                         statsCast.ResurrectedCount++;
                     }
@@ -2532,7 +2635,8 @@ public class UnitCombatStats
         {
             try
             {
-                if (isCombatActive && evt.Initiator != null && evt.Value > 0) 
+                // AJOUT CRITIQUE : Ignorer les soins "Fake" (prédictions d'infobulles)
+                if (isCombatActive && !evt.IsFake && evt.Initiator != null && evt.Value > 0) 
                 {
                     var stats = GetOrAddStats(evt.Initiator, out _);
                     if (stats != null)
@@ -2547,8 +2651,6 @@ public class UnitCombatStats
                             }
                         }
                         if (isVampiric) stats.VampiricHealing += evt.Value;
-                        else stats.HealingDone += evt.Value;
-						if (isVampiric) stats.VampiricHealing += evt.Value;
                         else stats.HealingDone += evt.Value;
 
                         // Évaluation Ange Gardien : PV de la cible inférieurs à 30% lors du déclenchement
@@ -2696,20 +2798,22 @@ public class UnitCombatStats
                 if (attacker == null || attacker == victim || attacker.IsPlayerFaction == victim.IsPlayerFaction) return;
 
                 var ability = evt.Reason?.Context?.SourceAbility;
-                if (ability != null && ability.name != null)
+                if (ability != null && !string.IsNullOrEmpty(ability.name))
                 {
-                    bool isDeathSpell = ability.SpellDescriptor.HasFlag(SpellDescriptor.Death) || 
-                                        ability.name.ToLower().Contains("phantasmalkiller") || 
-                                        ability.name.ToLower().Contains("weird") || 
-                                        ability.name.ToLower().Contains("absolutedeath") ||
-                                        ability.name.ToLower().Contains("wailof");
+                    // 1. Zéro Boxing sur l'Enum (cast en long pour opération binaire brute)
+                    // 2. Zéro allocation de string (utilisation d'IndexOf)
+                    bool isDeathSpell = ((long)ability.SpellDescriptor & (long)SpellDescriptor.Death) != 0 || 
+                                        ability.name.IndexOf("phantasmalkiller", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                                        ability.name.IndexOf("weird", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                                        ability.name.IndexOf("absolutedeath", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                        ability.name.IndexOf("wailof", StringComparison.OrdinalIgnoreCase) >= 0;
 
                     if (isDeathSpell && !evt.IsPassed)
                     {
                         var stats = GetOrAddStats(attacker, out _);
                         if (stats != null)
                         {
-                            stats.IconicSpellsCast++; 
+                            // SUPPRESSION DE "stats.IconicSpellsCast++;" (Fin du double-comptage)
                             doomedTargets[victim.UniqueId] = attacker;
                         }
                     }
@@ -2771,7 +2875,9 @@ public class UnitCombatStats
         // ====================================================================
 
         
-		// Détermination compile-safe du nom de l'effet ou de l'arme
+		// Mise en cache du FieldInfo pour des performances absolues (Zéro allocation à la volée)
+        private static readonly FieldInfo s_ItemDisplayNameField = typeof(Kingmaker.Blueprints.Items.BlueprintItem).GetField("m_DisplayNameText", BindingFlags.NonPublic | BindingFlags.Instance);
+
         public static string GetDamageSourceName(RuleDealDamage evt)
         {
             try
@@ -2784,8 +2890,8 @@ public class UnitCombatStats
                     {
                         try
                         {
-                            var field = typeof(Kingmaker.Blueprints.Items.BlueprintItem).GetField("m_DisplayNameText", BindingFlags.NonPublic | BindingFlags.Instance);
-                            var locStr = field?.GetValue(weapon.Blueprint) as Kingmaker.Localization.LocalizedString;
+                            // Utilisation du cache au lieu d'interroger la réflexion à chaque coup !
+                            var locStr = s_ItemDisplayNameField?.GetValue(weapon.Blueprint) as Kingmaker.Localization.LocalizedString;
                             cleanName = locStr?.ToString();
                         }
                         catch (Exception) { }
@@ -2839,9 +2945,10 @@ public class UnitCombatStats
 
             if (source is PhysicalDamage physical)
             {
-                bool s = physical.Form.HasFlag(PhysicalDamageForm.Slashing);
-                bool p = physical.Form.HasFlag(PhysicalDamageForm.Piercing);
-                bool b = physical.Form.HasFlag(PhysicalDamageForm.Bludgeoning);
+                // Opérations binaires pures = Zéro Garbage Collection, Zéro Boxing.
+                bool s = (physical.Form & PhysicalDamageForm.Slashing) != 0;
+                bool p = (physical.Form & PhysicalDamageForm.Piercing) != 0;
+                bool b = (physical.Form & PhysicalDamageForm.Bludgeoning) != 0;
 
                 if (s && p && b) return Localization.GetStringById("ui.dmg.all_phys") ?? "Tranchant/Perçant/Contondant";
                 if (s && p) return Localization.GetStringById("ui.dmg.slash_pierce") ?? "Tranchant/Perçant";
@@ -2879,15 +2986,18 @@ public class UnitCombatStats
         }
 		
 		// Résolution dynamique du nom du modificateur (Force, Châtiment, Attaque en puissance, etc.)
+        // Résolution dynamique du nom du modificateur (Force, Châtiment, Attaque en puissance, etc.)
         public static string GetModifierName(Modifier mod)
         {
             try
             {
+                // 1. Priorité absolue : le vrai nom localisé du don, buff ou arme (ex: "Attaque en puissance")
                 if (mod.Fact != null && !string.IsNullOrEmpty(mod.Fact.Name))
                 {
                     return mod.Fact.Name;
                 }
 
+                // 2. Traductions spécifiques pré-enregistrées
                 switch (mod.Descriptor)
                 {
                     case ModifierDescriptor.None: return Localization.GetStringById("ui.dmg.audit_other") ?? "Base / Autre";
@@ -2904,6 +3014,11 @@ public class UnitCombatStats
                     case ModifierDescriptor.WeaponTraining: return Localization.GetStringById("ui.dmg.audit_weapon_training") ?? "Weapon Training";
                     case ModifierDescriptor.UntypedStackable: return Localization.GetStringById("ui.dmg.audit_untyped_stackable") ?? "Stackable Modifier";
                 }
+
+                // 3. SOLUTION UNIVERSELLE : Pour les ~47 autres descripteurs (Feat, Alchemical, Circumstance, etc.)
+                // On sépare automatiquement les mots attachés (ex: "ArmorEnhancement" devient "Armor Enhancement")
+                string enumName = mod.Descriptor.ToString();
+                return System.Text.RegularExpressions.Regex.Replace(enumName, "([a-z])([A-Z])", "$1 $2");
             }
             catch (Exception) { }
 
@@ -2963,28 +3078,31 @@ public class UnitCombatStats
                 if (!isCombatActive || evt.Initiator == null || evt.Target == null) return;
 
                 // Si un membre du groupe lance un sort et qu'un ennemi y résiste via sa SR
-                if (evt.Initiator.IsPlayerFaction && !evt.Target.IsPlayerFaction && evt.IsSpellResisted)
+                if (evt.Initiator.IsPlayerFaction && !evt.Target.IsPlayerFaction)
                 {
                     var stats = GetOrAddStats(evt.Initiator, out _);
                     if (stats != null)
                     {
-                        stats.SpellsResistedCount++;
-
-                        // Extraction du nom du sort et du nom de l'ennemi résistant
-                        string spellName = evt.Ability?.Name ?? evt.Context?.Name ?? "Sort inconnu";
-                        string targetName = evt.Target?.CharacterName ?? "Inconnu";
-
-                        if (!stats.SpellsResistedSources.ContainsKey(spellName))
+                        if (evt.IsSpellResisted)
                         {
-                           stats.SpellsResistedSources[spellName] = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                        }
-                        if (stats.SpellsResistedSources[spellName].ContainsKey(targetName))
-                        {
-                           stats.SpellsResistedSources[spellName][targetName]++;
+                            stats.SpellsResistedCount++;
+
+                            // Extraction du nom du sort et de la cible pour l'audit détaillé
+                            string spellName = evt.Ability?.Name ?? evt.Context?.Name ?? "Sort inconnu";
+                            string targetName = evt.Target?.CharacterName ?? "Inconnu";
+
+                            if (!stats.SpellsResistedSources.ContainsKey(spellName))
+                                stats.SpellsResistedSources[spellName] = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                                
+                            if (stats.SpellsResistedSources[spellName].ContainsKey(targetName))
+                                stats.SpellsResistedSources[spellName][targetName]++;
+                            else
+                                stats.SpellsResistedSources[spellName][targetName] = 1;
                         }
                         else
                         {
-                           stats.SpellsResistedSources[spellName][targetName] = 1;
+                            // NOUVEAU : Le sort vient de passer la Résistance Magique avec succès !
+                            stats.SpellsPenetratedCount++;
                         }
                     }
                 }
@@ -3185,7 +3303,14 @@ public class UnitCombatStats
             int partyLevel = Main.Tracker != null ? Main.Tracker.currentPartyLevel : 1;
             if (partyLevel <= 0) partyLevel = 1;
 
-            // 1. Tank sans armure
+            // Pré-calcul global des CC (Contrôles de foule) pour usage répété
+            int totalCC = stat.CC_Prone + stat.CC_Paralyzed + stat.CC_Stunned + stat.CC_Frightened + 
+                          stat.CC_Shaken + stat.CC_Nauseated + stat.CC_Sickened + stat.CC_Blinded + 
+                          stat.CC_Entangled + stat.CC_Confused + stat.CC_Exhausted + stat.CC_Fatigued + 
+                          stat.CC_Slowed + stat.CC_Staggered + stat.CC_Petrified + stat.CC_Asleep + 
+                          stat.CC_Dazed + stat.CC_Dazzled + stat.CC_Helpless + stat.CC_Cowering + stat.CC_DeathsDoor;
+
+            // 1. Tank sans armure (Vérifié: Bracers of Armor = ProficencyGroup.None)
             var armorItem = stat.UnitData != null ? stat.UnitData.Body.Armor.MaybeItem as Kingmaker.Items.ItemEntityArmor : null;
             bool hasNoArmor = armorItem == null || armorItem.ArmorType() == Kingmaker.Blueprints.Items.Armors.ArmorProficiencyGroup.None;
             if (hasNoArmor && stat.DamageTaken > (partyLevel * 20) && stat.AttacksDodged >= 10)
@@ -3199,56 +3324,56 @@ public class UnitCombatStats
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_2"), Localization.GetFormatted("ACH_DESC_2", stat), Color.white, 70));
             }
 
-            // 3. Destructeur divin
+            // 3. Destructeur divin (Ange)
             bool isAngel = stat.MythicPathName.ToLower().Contains("angel") || stat.MythicPathInternalName.ToLower().Contains("angel");
             if (isAngel && stat.MaxSingleHit >= (partyLevel * 15))
             {
                 stat.Achievements.Add(new MVPAchievement("SS", Localization.GetStringById("ACH_TITLE_3"), Localization.GetFormatted("ACH_DESC_3", stat), Color.white, 90));
             }
 
-            // 4. Maître des AoO
+            // 4. Maître des AoO (Attaques d'opportunité)
             if (stat.AoOs >= 15)
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_4"), Localization.GetFormatted("ACH_DESC_4", stat), Color.white, 72));
             }
 
-            // 5. Maître des sorts fusionnés
+            // 5. Maître des sorts fusionnés (Deceiver - Axé sur le Contrôle de Zone)
             bool isDeceiver = stat.UnitData != null && stat.UnitData.Progression.Classes.Any(c => c.CharacterClass.name.ToLower().Contains("magicdeceiver"));
-            if (isDeceiver && (stat.TotalDamage + stat.SummonDamage) >= (partyLevel * 40))
+            if (isDeceiver && totalCC >= 12)
             {
                 stat.Achievements.Add(new MVPAchievement("SS", Localization.GetStringById("ACH_TITLE_5"), Localization.GetFormatted("ACH_DESC_5", stat), Color.white, 88));
             }
 
-            // 6. Cavalier de Bismuth
+            // 6. Cavalier de Bismuth (Vérification par Blueprint stricte)
             bool isBismuth = stat.UnitData != null && stat.UnitData.IsPet && (stat.UnitData.CharacterName.ToLower().Contains("bismuth") || stat.UnitData.Blueprint.AssetGuid.ToString() == "7c2de930e441ea249be955610f84c748");
             if (isBismuth && (stat.TotalDamage + stat.SummonDamage) > (partyLevel * 25))
             {
                 stat.Achievements.Add(new MVPAchievement("B", Localization.GetStringById("ACH_TITLE_6"), Localization.GetFormatted("ACH_DESC_6", stat), Color.white, 35));
             }
 
-            // 7. Spécialiste de la méga frappe sournoise
-            if (stat.MaxSingleHit >= (partyLevel * 30) && stat.SneakAttackDmg > 0)
+            // 7. Spécialiste de la méga frappe sournoise (Sécurisé pour réclamer de vrais lourds dégâts sournois)
+            if (stat.MaxSingleHit >= (partyLevel * 25) && stat.SneakAttackDmg >= (partyLevel * 15))
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_7"), Localization.GetFormatted("ACH_DESC_7", stat), Color.white, 75));
             }
 
-            // 8. Pounce Provider
+            // 8. Pounce Provider (Skald)
             bool isSkald = stat.UnitData != null && stat.UnitData.Progression.Classes.Any(c => c.CharacterClass.name.ToLower().Contains("skald"));
             if (isSkald && stat.SupportBuffsCast >= 15)
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_8"), Localization.GetFormatted("ACH_DESC_8", stat), Color.white, 78));
             }
 
-            // 9. L'exécuteur fantomatique
+            // 9. L'exécuteur fantomatique (Insta-kills)
             if (stat.InstaKills >= 5)
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_9"), Localization.GetFormatted("ACH_DESC_9", stat), Color.white, 80));
             }
 
-            // 10. Le Démon Cinétiste
+            // 10. Le Démon Cinétiste (Corrigé : Ne récompense plus les AFK)
             bool isKineticist = stat.UnitData != null && stat.UnitData.Progression.Classes.Any(c => c.CharacterClass.name.ToLower().Contains("kineticist"));
             bool isDemon = stat.MythicPathName.ToLower().Contains("demon") || stat.MythicPathInternalName.ToLower().Contains("demon");
-            if (isKineticist && isDemon)
+            if (isKineticist && isDemon && stat.TotalDamage >= (partyLevel * 30))
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_10"), Localization.GetFormatted("ACH_DESC_10", stat), Color.white, 82));
             }
@@ -3259,27 +3384,28 @@ public class UnitCombatStats
                 stat.Achievements.Add(new MVPAchievement("A", Localization.GetStringById("ACH_TITLE_11"), Localization.GetFormatted("ACH_DESC_11", stat), Color.white, 50));
             }
 
-            // 12. Briseur d'armures
-            if ((stat.TotalDamage + stat.SummonDamage) >= (partyLevel * 30) && (stat.SlashingDmg > 0 || stat.PiercingDmg > 0 || stat.BludgeoningDmg > 0))
+            // 12. Briseur d'armures (Corrigé : Exige des dégâts PHYSIQUES massifs, pas juste génériques)
+            long totalPhysical = stat.SlashingDmg + stat.PiercingDmg + stat.BludgeoningDmg + stat.AllPhysDmg + stat.SlashPierceDmg + stat.SlashBludgeonDmg + stat.PierceBludgeonDmg;
+            if (totalPhysical >= (partyLevel * 35) && stat.MaxSingleHit >= (partyLevel * 15))
             {
                 stat.Achievements.Add(new MVPAchievement("A", Localization.GetStringById("ACH_TITLE_12"), Localization.GetFormatted("ACH_DESC_12", stat), Color.white, 52));
             }
 
-            // 13. Spécialiste du bouclier
+            // 13. Spécialiste du bouclier (Corrigé : Exige d'avoir TANKÉ des coups)
             bool hasShieldAndWeapon = stat.UnitData != null && stat.UnitData.Body.PrimaryHand.HasWeapon && stat.UnitData.Body.SecondaryHand.HasShield;
-            if (hasShieldAndWeapon && (stat.TotalDamage + stat.SummonDamage) >= (partyLevel * 40))
+            if (hasShieldAndWeapon && (stat.TotalDamage + stat.SummonDamage) >= (partyLevel * 25) && stat.AttacksDodged >= 6)
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_13"), Localization.GetFormatted("ACH_DESC_13", stat), Color.white, 74));
             }
 
-            // 14. Destructeur chaotique
+            // 14. Destructeur chaotique (Friendly Fire)
             float totalDmgInclSummons = stat.TotalDamage + stat.SummonDamage;
             if (totalDmgInclSummons > 0f && stat.FriendlyFireDmg >= 0.35f * totalDmgInclSummons && stat.FriendlyFireDmg >= 100 && totalDmgInclSummons >= (partyLevel * 45))
             {
                 stat.Achievements.Add(new MVPAchievement("A", Localization.GetStringById("ACH_TITLE_14"), Localization.GetFormatted("ACH_DESC_14", stat), Color.white, 54));
             }
 
-            // 15. Magic Deceiver Master
+            // 15. Magic Deceiver Master (Axé sur les dégâts purs)
             if (isDeceiver && (stat.TotalDamage + stat.SummonDamage) >= (partyLevel * 50))
             {
                 stat.Achievements.Add(new MVPAchievement("SS", Localization.GetStringById("ACH_TITLE_15"), Localization.GetFormatted("ACH_DESC_15", stat), Color.white, 92));
@@ -3300,8 +3426,8 @@ public class UnitCombatStats
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_17"), Localization.GetFormatted("ACH_DESC_17", stat), Color.white, 76));
             }
 
-            // 18. Le briseur de barrières
-            if (stat.SpellsResistedCount == 0 && (stat.TotalDamage > 0 || stat.CC_Paralyzed > 0))
+            // 18. Le briseur de barrières (CORRIGÉ : Repose désormais sur une vraie mécanique de pénétration)
+            if (stat.SpellsPenetratedCount >= 4)
             {
                 stat.Achievements.Add(new MVPAchievement("A", Localization.GetStringById("ACH_TITLE_18"), Localization.GetFormatted("ACH_DESC_18", stat), Color.white, 56));
             }
@@ -3314,14 +3440,14 @@ public class UnitCombatStats
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_19"), Localization.GetFormatted("ACH_DESC_19", stat), Color.white, 86));
             }
 
-            // 20. Maître des nuées
+            // 20. Maître des nuées (Swarm)
             if (stat.SummonDamage >= 50 && stat.CC_Nauseated >= 5 && stat.StatDamage >= 10)
             {
                 stat.Achievements.Add(new MVPAchievement("SS", Localization.GetStringById("ACH_TITLE_20"), Localization.GetFormatted("ACH_DESC_20", stat), Color.white, 94));
             }
 
-            // 21. Maître du coup de grâce
-            if (stat.CC_Helpless >= 3)
+            // 21. Maître du coup de grâce (Corrigé : Exige d'avoir rendu les cibles Helpless ET de les avoir tuées)
+            if (stat.CC_Helpless >= 2 && stat.Kills >= 2)
             {
                 stat.Achievements.Add(new MVPAchievement("A", Localization.GetStringById("ACH_TITLE_21"), Localization.GetFormatted("ACH_DESC_21", stat), Color.white, 58));
             }
@@ -3357,46 +3483,60 @@ public class UnitCombatStats
                 stat.Achievements.Add(new MVPAchievement("SS", Localization.GetStringById("ACH_TITLE_25"), Localization.GetFormatted("ACH_DESC_25", stat), Color.white, 98));
             }
 
-            // 26. Maître de la dissipation magique
-            if (stat.DispelledCount >= 10 && stat.SavesSucceeded > 0)
+            // 26. Maître de la dissipation magique (Corrigé : Suppression de l'obligation de réussir ses propres jets de sauvegarde)
+            if (stat.DispelledCount >= 5)
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_26"), Localization.GetFormatted("ACH_DESC_26", stat), Color.white, 70));
             }
 
-            // 27. Le pourfendeur de géants
-            bool hasGiantVictim = stat.KilledUnits.Count > 0 && Main.Tracker != null && Main.Tracker.combatStats.Values.Any(s => !s.IsAlly && s.CR > partyLevel && s.UnitData != null && s.UnitData.Descriptor.OriginalSize >= Kingmaker.Enums.Size.Large);
-            if (hasGiantVictim)
+            // 27. Le pourfendeur de géants (Corrigé : Vérifie que CE personnage a tué la créature géante)
+            bool killedGiant = false;
+            if (stat.KilledUnits.Count > 0 && Main.Tracker != null)
+            {
+                foreach (var killedName in stat.KilledUnits.Keys)
+                {
+                    var victimStat = Main.Tracker.combatStats.Values.FirstOrDefault(s => !s.IsAlly && s.Name == killedName);
+                    if (victimStat != null && victimStat.UnitData != null && victimStat.UnitData.Descriptor.OriginalSize >= Kingmaker.Enums.Size.Large)
+                    {
+                        killedGiant = true;
+                        break;
+                    }
+                }
+            }
+            if (killedGiant && (stat.TotalDamage + stat.SummonDamage) >= (partyLevel * 20))
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_27"), Localization.GetFormatted("ACH_DESC_27", stat), Color.white, 71));
             }
 
             // 28. Le spécialiste du croc-en-jambe
-            if (stat.TrippedCount >= 8)
+            if (stat.TrippedCount >= 6)
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_28"), Localization.GetFormatted("ACH_DESC_28", stat), Color.white, 73));
             }
 
-            // 29. Le gardien intouchable
-            if (stat.AttacksAttempted >= 20 && stat.DamageTaken == 0)
+            // 29. Le gardien intouchable (Corrigé : Exige d'être activement pris pour cible)
+            int totalAttacksDirectedAtMe = stat.HitsPhysicalTaken + stat.AttacksDodged;
+            if (totalAttacksDirectedAtMe >= 15 && stat.DamageTaken == 0)
             {
-                stat.Achievements.Add(new MVPAchievement("A", Localization.GetStringById("ACH_TITLE_29"), Localization.GetFormatted("ACH_DESC_29", stat), Color.white, 50));
+                stat.Achievements.Add(new MVPAchievement("A", Localization.GetStringById("ACH_TITLE_29"), Localization.GetFormatted("ACH_DESC_29", stat), Color.white, 85));
             }
 
             // 30. Le maître des invocations
-            if (stat.SummonsCount >= 5 && stat.SummonDamage >= (partyLevel * 25))
+            if (stat.SummonsCount >= 4 && stat.SummonDamage >= (partyLevel * 25))
             {
                 stat.Achievements.Add(new MVPAchievement("SS", Localization.GetStringById("ACH_TITLE_30"), Localization.GetFormatted("ACH_DESC_30", stat), Color.white, 91));
             }
 
-            // 31. Pavois
-            bool hasTowerShield = stat.UnitData != null && stat.UnitData.Body.SecondaryHand.MaybeShield != null && stat.UnitData.Body.SecondaryHand.MaybeShield.Blueprint.Type.IsShield && stat.UnitData.Body.SecondaryHand.MaybeShield.Blueprint.Type.name.ToLower().Contains("towershield");
-            if (hasTowerShield && stat.AttacksDodged >= 15)
+            // 31. Spécialiste du Pavois (Corrigé : Vérification stricte via l'Enum ProficiencyGroup)
+            var shieldItem = stat.UnitData?.Body?.SecondaryHand?.MaybeShield;
+            bool hasTowerShield = shieldItem != null && shieldItem.Blueprint.Type.ProficiencyGroup == Kingmaker.Blueprints.Items.Armors.ArmorProficiencyGroup.TowerShield;
+            if (hasTowerShield && stat.AttacksDodged >= 10)
             {
                 stat.Achievements.Add(new MVPAchievement("B", Localization.GetStringById("ACH_TITLE_31"), Localization.GetFormatted("ACH_DESC_31", stat), Color.white, 31));
             }
 
             // 32. Faiseur de miracles
-            if (stat.ResurrectedCount >= 3)
+            if (stat.ResurrectedCount >= 2)
             {
                 stat.Achievements.Add(new MVPAchievement("SS", Localization.GetStringById("ACH_TITLE_32"), Localization.GetFormatted("ACH_DESC_32", stat), Color.white, 93));
             }
@@ -3408,15 +3548,14 @@ public class UnitCombatStats
             }
 
             // 34. Le destructeur de démons
-            bool isDemonSlayer = stat.UnitData != null && stat.UnitData.Progression.Classes.Any(c => c.CharacterClass.name.ToLower().Contains("ranger") && c.Archetypes.Any(a => a.name.ToLower().Contains("demonslayer")));
-            if (isDemonSlayer && stat.Kills >= 5)
+            bool isDemonSlayer = stat.UnitData != null && stat.UnitData.Progression.Classes.Any(c => c.CharacterClass.name.IndexOf("ranger", StringComparison.OrdinalIgnoreCase) >= 0 && c.Archetypes.Any(a => a.name.IndexOf("demonslayer", StringComparison.OrdinalIgnoreCase) >= 0));
+            if (isDemonSlayer && stat.Kills >= 4)
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_34"), Localization.GetFormatted("ACH_DESC_34", stat), Color.white, 77));
             }
 
             // 35. Le maître du feu d'enfer
-            float hellfireDamageThreshold = partyLevel * 75;
-            if (stat.TotalDamage >= hellfireDamageThreshold && stat.MaxSingleHit >= (partyLevel * 50))
+            if (stat.TotalDamage >= (partyLevel * 50) && stat.MaxSingleHit >= (partyLevel * 30) && stat.FireDmg > 0)
             {
                 stat.Achievements.Add(new MVPAchievement("SS", Localization.GetStringById("ACH_TITLE_35"), Localization.GetFormatted("ACH_DESC_35", stat), Color.white, 95));
             }
@@ -3425,7 +3564,7 @@ public class UnitCombatStats
             bool hasHawkEyeBow = stat.UnitData != null && stat.UnitData.Body.PrimaryHand.MaybeWeapon != null && 
                           (stat.UnitData.Body.PrimaryHand.MaybeWeapon.Blueprint.Type.Category == Kingmaker.Enums.WeaponCategory.Longbow || 
                            stat.UnitData.Body.PrimaryHand.MaybeWeapon.Blueprint.Type.Category == Kingmaker.Enums.WeaponCategory.Shortbow);
-            if (hasHawkEyeBow && stat.Crits >= 10)
+            if (hasHawkEyeBow && stat.Crits >= 5 && stat.TotalDamage >= (partyLevel * 30))
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_36"), Localization.GetFormatted("ACH_DESC_36", stat), Color.white, 81));
             }
@@ -3438,45 +3577,45 @@ public class UnitCombatStats
             }
 
             // 38. Le maître de la lame cinétique
-            bool isKineticBladeSource = stat.DamageBySource.Keys.Any(k => k.ToLower().Contains("kinetic blade") || k.ToLower().Contains("lame cinétique"));
+            bool isKineticBladeSource = stat.DamageBySource.Keys.Any(k => k.IndexOf("kinetic blade", StringComparison.OrdinalIgnoreCase) >= 0 || k.IndexOf("lame cinétique", StringComparison.OrdinalIgnoreCase) >= 0);
             if (isKineticBladeSource && (stat.TotalDamage + stat.SummonDamage) >= (partyLevel * 25))
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_38"), Localization.GetFormatted("ACH_DESC_38", stat), Color.white, 85));
             }
 
-            // 39. Le chirurgien de l'escouade
+            // 39. Le chirurgien de l'escouade (Corrigé : Ajout d'un seuil minimal de dégâts pour éviter les faux positifs sur les combats vides)
             float totalEncountersGroupDamage = Main.Tracker != null ? Main.Tracker.combatStats.Values.Where(s => s.IsAlly).Sum(s => s.DamageTaken) : 0f;
-            if (totalEncountersGroupDamage > 0f && stat.HealingDone >= (totalEncountersGroupDamage * 0.50f))
+            if (totalEncountersGroupDamage >= (partyLevel * 20) && stat.HealingDone >= (totalEncountersGroupDamage * 0.40f))
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_39"), Localization.GetFormatted("ACH_DESC_39", stat), Color.white, 87));
             }
 
-            // 40. Le pourfendeur du mal
-            bool hasSmiteAbility = stat.UnitData != null && (stat.UnitData.Stats.AC.Modifiers.Any(m => {
-                var fact = m.Source as Kingmaker.EntitySystem.EntityFact;
-                return fact != null && fact.Name != null && fact.Name.ToLower().Contains("smite evil");
-            }) || stat.SupportBuffsCast >= 5);
-            if (hasSmiteAbility && (stat.TotalDamage + stat.SummonDamage) >= (partyLevel * 30))
+            // 40. Le pourfendeur du mal (CORRIGÉ : Vérification absolue via l'audit des modificateurs de dégâts d'Owlcat)
+            bool actuallyUsedSmiteEvil = stat.DamageModifiersAudit.Values.Any(modDict => 
+                modDict.Keys.Any(k => k.IndexOf("smite evil", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                                      k.IndexOf("châtiment du mal", StringComparison.OrdinalIgnoreCase) >= 0));
+
+            if (actuallyUsedSmiteEvil && (stat.TotalDamage + stat.SummonDamage) >= (partyLevel * 25))
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_40"), Localization.GetFormatted("ACH_DESC_40", stat), Color.white, 89));
             }
 
             // 41. Le combattant à mains nues
-            bool hasUnarmedDealt = stat.DamageBySource.Keys.Any(k => k.ToLower().Contains("unarmed strike") || k.ToLower().Contains("mains nues"));
+            bool hasUnarmedDealt = stat.DamageBySource.Keys.Any(k => k.IndexOf("unarmed strike", StringComparison.OrdinalIgnoreCase) >= 0 || k.IndexOf("mains nues", StringComparison.OrdinalIgnoreCase) >= 0);
             if (hasUnarmedDealt && (stat.TotalDamage + stat.SummonDamage) >= (partyLevel * 20))
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_41"), Localization.GetFormatted("ACH_DESC_41", stat), Color.white, 79));
             }
 
             // 42. Le maître du parchemin
-            bool isScrollSavant = stat.UnitData != null && stat.UnitData.Progression.Classes.Any(c => c.CharacterClass.name.ToLower().Contains("wizard") && c.Archetypes.Any(a => a.name.ToLower().Contains("scrollsavant")));
-            if (isScrollSavant && stat.ScrollsCastCount >= 4)
+            bool isScrollSavant = stat.UnitData != null && stat.UnitData.Progression.Classes.Any(c => c.CharacterClass.name.IndexOf("wizard", StringComparison.OrdinalIgnoreCase) >= 0 && c.Archetypes.Any(a => a.name.IndexOf("scrollsavant", StringComparison.OrdinalIgnoreCase) >= 0));
+            if (isScrollSavant && stat.ScrollsCastCount >= 3)
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_42"), Localization.GetFormatted("ACH_DESC_42", stat), Color.white, 91));
             }
 
             // 43. Terreur de Deskari
-            bool isDeskariFight = Main.Tracker != null && Main.Tracker.combatStats.Values.Any(s => !s.IsAlly && s.CR > 30 && (s.Name.ToLower().Contains("deskari") || (s.UnitData != null && s.UnitData.Blueprint.AssetGuid.ToString() == "5e4d2bfd4e92a54419d8a1a6fcda90e1")));
+            bool isDeskariFight = Main.Tracker != null && Main.Tracker.combatStats.Values.Any(s => !s.IsAlly && s.CR > 30 && (s.Name.IndexOf("deskari", StringComparison.OrdinalIgnoreCase) >= 0 || (s.UnitData != null && s.UnitData.Blueprint.AssetGuid.ToString() == "5e4d2bfd4e92a54419d8a1a6fcda90e1")));
             if (isDeskariFight)
             {
                 float totalGroupEffortDeskari = Main.Tracker.combatStats.Values.Where(s => s.IsAlly).Sum(s => s.TotalDamage + s.SummonDamage + s.HealingDone + s.VampiricHealing);
@@ -3488,13 +3627,13 @@ public class UnitCombatStats
             }
 
             // 44. Le briseur de sorts suprême
-            if (stat.DispelledCount >= 20)
+            if (stat.DispelledCount >= 8)
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_44"), Localization.GetFormatted("ACH_DESC_44", stat), Color.white, 93));
             }
 
             // 45. Performance physique exceptionnelle
-            if (stat.SlashingDmg + stat.PiercingDmg + stat.BludgeoningDmg >= (partyLevel * 55))
+            if (totalPhysical >= (partyLevel * 55))
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_45"), Localization.GetFormatted("ACH_DESC_45", stat), Color.white, 61));
             }
@@ -3507,18 +3646,13 @@ public class UnitCombatStats
             }
 
             // 47. Le maître des entraves
-            int appliedCCTotal = stat.CC_Prone + stat.CC_Paralyzed + stat.CC_Stunned + stat.CC_Frightened + 
-                                stat.CC_Shaken + stat.CC_Cowering + stat.CC_Nauseated + stat.CC_Sickened + 
-                                stat.CC_Blinded + stat.CC_Entangled + stat.CC_Confused + stat.CC_Exhausted + 
-                                stat.CC_Fatigued + stat.CC_Slowed + stat.CC_Staggered + stat.CC_Dazed + 
-                                stat.CC_Dazzled + stat.CC_Helpless + stat.CC_Cowering + stat.CC_DeathsDoor;
-            if (appliedCCTotal >= 20)
+            if (totalCC >= 20)
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_47"), Localization.GetFormatted("ACH_DESC_47", stat), Color.white, 65));
             }
 
             // 48. Le maître des bénédictions
-            if (stat.SupportBuffsCast >= 60)
+            if (stat.SupportBuffsCast >= 40)
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_48"), Localization.GetFormatted("ACH_DESC_48", stat), Color.white, 67));
             }
@@ -3530,7 +3664,7 @@ public class UnitCombatStats
             }
 
             // 50. Le coordinateur tactique
-            if (stat.SupportBuffsCast >= 20 && appliedCCTotal >= 10)
+            if (stat.SupportBuffsCast >= 20 && totalCC >= 10)
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_50"), Localization.GetFormatted("ACH_DESC_50", stat), Color.white, 99));
             }

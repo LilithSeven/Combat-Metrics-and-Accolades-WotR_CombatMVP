@@ -2,6 +2,8 @@
  "strings": {
   "ui.dmg.details_header": "Details des verursachten Schadens:",
   "ui.search.filter_label": "Filter:",
+  "ui.empty.title": "Keine Kampfdaten aufgezeichnet.",
+  "ui.empty.subtitle": "(Das Dashboard wird nach dem nächsten Kampf automatisch gefüllt)",
   "ui.search.no_match": "Keine passenden Kampfberichte gefunden.",
   "ui.telemetry.killed_foes": "Besiegte Ziele:",
   "ui.telemetry.damage_modifiers_audit": "Details des verursachten Schadens (mit Modifikatoren)",
@@ -105,7 +107,7 @@
   "ui.misc.summons_report": "<b>Beitrag beschworener Kreaturen:</b> <color={0}>{1} Schaden | {2} Tötungen</color>",
   "ui.misc.heroic_ach": "BEEINDRUCKENDE ERFOLGE",
   "ui.misc.mythic_ach": "BEEINDRUCKENDE / MYTHISCHE ERFOLGE",
-  "ui.misc.no_feats": "Nichts anzuzeigen.",
+  "ui.misc.no_feats": "Weitere Erfolge folgen in Kürze!",
   "ui.misc.folder_index": "Eintrag {0} von {1}",
   "ui.context.single_boss": "fokussiert auf einen Hauptgegner des HG {0}",
   "ui.context.multi_targets": "verteilt auf eine Vielzahl feindlicher Ziele",

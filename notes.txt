@@ -6,4 +6,5 @@
   - Added a real-time UI font scale slider
   - Updated and corrected some terms across all 8 supported languages
   - Some others fixes
+  - Achievements display mode is temporarily disabled due to ongoing deep work
 

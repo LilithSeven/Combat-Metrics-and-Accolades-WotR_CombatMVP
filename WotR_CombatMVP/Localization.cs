@@ -161,7 +161,7 @@ namespace WotR_CombatMVP
                           stat.CC_Shaken + stat.CC_Cowering + stat.CC_Nauseated + stat.CC_Sickened + 
                           stat.CC_Blinded + stat.CC_Entangled + stat.CC_Confused + stat.CC_Exhausted + 
                           stat.CC_Fatigued + stat.CC_Slowed + stat.CC_Staggered + stat.CC_Dazed + 
-                          stat.CC_Dazzled + stat.CC_Helpless + stat.CC_Cowering + stat.CC_DeathsDoor;
+                          stat.CC_Dazzled + stat.CC_Helpless + stat.CC_DeathsDoor;
             template = template.Replace("{totalCC}", totalCC.ToString());
 
             // Remplacements historiques pour rétrocompatibilité

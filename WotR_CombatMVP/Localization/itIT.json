@@ -2,6 +2,8 @@
  "strings": {
   "ui.dmg.details_header": "Dettagli dei danni inflitti:",
   "ui.search.filter_label": "Filtra:",
+  "ui.empty.title": "Nessun dato di combattimento registrato.",
+  "ui.empty.subtitle": "(Il pannello si riempirà automaticamente dopo la tua prossima battaglia)",
   "ui.search.no_match": "Nessuna scheda di combattimento trovata corrispondente alla ricerca.",
   "ui.telemetry.killed_foes": "Alvos Eliminati:",
   "ui.telemetry.damage_modifiers_audit": "Dettaglio dei danni inflitti (con modificatori)",
@@ -105,7 +107,7 @@
   "ui.misc.summons_report": "<b>Wlad delle creature evocate:</b> <color={0}>{1} danni | {2} eliminazioni</color>",
   "ui.misc.heroic_ach": "RISULTATI ECCEZIONALI",
   "ui.misc.mythic_ach": "RISULTATI ECCEZIONALI / MITICI",
-  "ui.misc.no_feats": "Nulla da visualizzare.",
+  "ui.misc.no_feats": "Altre imprese in arrivo!",
   "ui.misc.folder_index": "Record {0} di {1}",
   "ui.context.single_boss": "focalizzato su un avversario principale di GS {0}",
   "ui.context.multi_targets": "distribuito tra una moltitudine di bersagli ostili",

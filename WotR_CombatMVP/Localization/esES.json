@@ -2,6 +2,8 @@
  "strings": {
   "ui.dmg.details_header": "Detalles del daño causado:",
   "ui.search.filter_label": "Filtrar:",
+  "ui.empty.title": "No hay datos de combate registrados.",
+  "ui.empty.subtitle": "(El panel se llenará automáticamente después de tu próxima batalla)",
   "ui.search.no_match": "No se encontraron hojas de combate que coincidan con tu búsqueda.",
   "ui.telemetry.killed_foes": "Objetivos eliminados:",
   "ui.telemetry.damage_modifiers_audit": "Detalle del daño causado (con modificadores)",
@@ -105,7 +107,7 @@
   "ui.misc.summons_report": "<b>Soporte de criaturas convocadas:</b> <color={0}>{1} de daño | {2} eliminaciones</color>",
   "ui.misc.heroic_ach": "CONQUISTAS IMPRESIONANTES",
   "ui.misc.mythic_ach": "CONQUISTAS IMPRESIONANTES / MÍTICAS",
-  "ui.misc.no_feats": "Nada que mostrar.",
+  "ui.misc.no_feats": "¡Más hazañas próximamente!",
   "ui.misc.folder_index": "Registro {0} de {1}",
   "ui.context.single_boss": "enfocado en un adversario principal de CR {0}",
   "ui.context.multi_targets": "distribuido entre una multitud de objetivos hostiles",

@@ -2,6 +2,8 @@
  "strings": {
   "ui.dmg.details_header": "伤害输出详情：",
   "ui.search.filter_label": "筛选：",
+  "ui.empty.title": "没有记录到战斗数据。",
+  "ui.empty.subtitle": "（仪表板将在您的下一场战斗后自动填充）",
   "ui.search.no_match": "未找到匹配搜索的战斗数据。",
   "ui.telemetry.killed_foes": "击杀目标：",
   "ui.telemetry.damage_modifiers_audit": "伤害输出详情（含修正值）",
@@ -105,7 +107,7 @@
   "ui.misc.summons_report": "<b>召唤物支持：</b> <color={0}>{1} 伤害 | {2} 击杀</color>",
   "ui.misc.heroic_ach": "非凡战绩",
   "ui.misc.mythic_ach": "非凡 / 神话战绩",
-  "ui.misc.no_feats": "无内容可显示。",
+  "ui.misc.no_feats": "更多成就敬请期待！",
   "ui.misc.folder_index": "第 {0} / {1} 页",
   "ui.context.single_boss": "集中于挑战等级为 {0} 的主要强敌",
   "ui.context.multi_targets": "分散在众多敌方目标身上",
