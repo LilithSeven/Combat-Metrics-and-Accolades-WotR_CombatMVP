@@ -429,6 +429,7 @@
   "ACH_TITLE_99": "Première lame",
   "ACH_DESC_99": "Première lame au sang, {kills} ennemis abattus, main libre.",
   "ACH_TITLE_100": "L'honneur de l'acier",
-  "ACH_DESC_100": "L'honneur de l'acier défendu à la manière d'Aldori : {totalDamage} dégâts infligés."
+  "ACH_DESC_100": "L'honneur de l'acier défendu à la manière d'Aldori : {totalDamage} dégâts infligés.",
+  "ui.compare.pct_hint": "Les pourcentages indiquent la part de chaque combattant dans le total de dégâts de son camp."
  }
 }

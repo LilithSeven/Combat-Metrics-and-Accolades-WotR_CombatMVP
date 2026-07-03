@@ -429,6 +429,7 @@
   "ACH_TITLE_99": "First Blade",
   "ACH_DESC_99": "First blood to the free blade, {kills} foes felled, off-hand empty.",
   "ACH_TITLE_100": "Honor of Steel",
-  "ACH_DESC_100": "The honor of steel upheld in the Aldori way: {totalDamage} damage dealt."
+  "ACH_DESC_100": "The honor of steel upheld in the Aldori way: {totalDamage} damage dealt.",
+  "ui.compare.pct_hint": "Percentages show each combatant's share of their side's total damage."
  }
 }

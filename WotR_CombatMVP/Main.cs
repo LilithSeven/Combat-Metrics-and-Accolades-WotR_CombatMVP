@@ -521,6 +521,10 @@ public class UnitCombatStats
         public int MaxBurstDamage = 0;
         public List<KeyValuePair<float, int>> RecentDamageWindow = new List<KeyValuePair<float, int>>();
         public int MaxMountedChargeHit = 0;
+        // Dégâts infligés lors d'une charge (RuleAttackWithWeapon.IsCharge). Sert à valider
+        // les accolades liées à la charge (ex. Pounce Provider) : elles n'ont de sens que si
+        // une charge a réellement eu lieu.
+        public long ChargeDamage = 0;
 		// --- NOUVELLES VARIABLES DE TÉLÉMÉTRIE OFFENSIVE & PRÉCISION ---
         public int AttacksAttempted = 0;       // Nombre total d'attaques physiques tentées
         public int AttacksLanded = 0;          // Nombre total d'attaques physiques ayant touché la cible
@@ -1186,6 +1190,10 @@ public class UnitCombatStats
 
             string title = Localization.GetStringById("ui.compare.title") ?? "COMBAT COMPARISON";
             GUILayout.Label($"<color={colTitle}><b>{title}</b></color>", titleStyle);
+
+            // Aide : les pourcentages indiquent la part de chaque combattant dans le total
+            // de dégâts de son camp (allié ou ennemi), pour comparer les contributions d'un coup d'oeil.
+            GUILayout.Label($"<color={colSub}><i>{Localization.GetStringById("ui.compare.pct_hint") ?? "Percentages show each combatant's share of their side's total damage."}</i></color>", new GUIStyle(GUI.skin.label) { fontSize = 13, fontStyle = FontStyle.Italic, richText = true });
             GUILayout.Space(10);
 
             if (allCombatants == null || allCombatants.Count == 0)
@@ -1193,6 +1201,10 @@ public class UnitCombatStats
                 GUILayout.Label($"<color={colSub}><i>{Localization.GetStringById("ui.compare.empty") ?? "No combatants to compare yet."}</i></color>", new GUIStyle(GUI.skin.label) { fontSize = 18, fontStyle = FontStyle.Italic, richText = true });
                 return;
             }
+
+            // Totaux de dégâts par camp pour convertir chaque contribution en pourcentage.
+            long allyDamageTotal = allCombatants.Where(c => c != null && c.IsAlly).Sum(c => (long)(c.TotalDamage + c.SummonDamage));
+            long enemyDamageTotal = allCombatants.Where(c => c != null && !c.IsAlly).Sum(c => (long)(c.TotalDamage + c.SummonDamage));
 
             GUILayout.BeginHorizontal();
             GUILayout.Label($"<color={colTitle}>{Localization.GetStringById("ui.ledger.col_name") ?? "Character"}</color>", hdrStyle, GUILayout.Width(width * 0.24f));
@@ -1219,9 +1231,12 @@ public class UnitCombatStats
                 int kills = s.Kills + s.SummonKills;
                 string nameCol = s.IsAlly ? colText : colDanger;
 
+                long factionDamageTotal = s.IsAlly ? allyDamageTotal : enemyDamageTotal;
+                int dmgPct = factionDamageTotal > 0 ? (int)Math.Round(dmg * 100.0 / factionDamageTotal) : 0;
+
                 GUILayout.BeginHorizontal();
                 GUILayout.Label($"<color={nameCol}>{s.Name}</color>", rowStyle, GUILayout.Width(width * 0.24f));
-                GUILayout.Label($"<color={colTitle}>{dmg}</color>", rowStyle, GUILayout.Width(width * 0.13f));
+                GUILayout.Label($"<color={colTitle}>{dmg}</color> <size=11><color={colSub}>({dmgPct}%)</color></size>", rowStyle, GUILayout.Width(width * 0.13f));
                 GUILayout.Label($"<color={colText}>{heal}</color>", rowStyle, GUILayout.Width(width * 0.12f));
                 GUILayout.Label($"<color={colDanger}>{s.DamageTaken}</color>", rowStyle, GUILayout.Width(width * 0.12f));
                 GUILayout.Label($"<color={colText}>{kills}</color>", rowStyle, GUILayout.Width(width * 0.08f));
@@ -1662,7 +1677,7 @@ public class UnitCombatStats
 
             // Début du conteneur de défilement gauche. Barres masquées (GUIStyle.none) tout en
             // conservant le défilement à la molette. On réserve de la place en bas pour la note épinglée.
-            float gradeReserve = (!SettingsManager.Current.ShowDebriefView) ? 120f : 0f;
+            float gradeReserve = (!SettingsManager.Current.ShowDebriefView) ? 165f : 0f;
             leftScrollPosition = GUILayout.BeginScrollView(leftScrollPosition, false, false, GUIStyle.none, GUIStyle.none, GUILayout.Width(leftZoneWidth), GUILayout.Height(height - 80 - gradeReserve));
 
             // Si aucune fiche ne correspond à la recherche
@@ -3787,6 +3802,15 @@ public class UnitCombatStats
                     stats.WeightedDamageDone += damage * multiplier;
                     if (damage > stats.MaxSingleHit) stats.MaxSingleHit = damage;
 
+                    // Détection d'une charge via le signal officiel d'Owlcat
+                    // (RuleAttackRoll.RuleAttackWithWeapon.IsCharge), identique à celui utilisé
+                    // par leurs propres hauts faits (AchievementLogicMassiveDamageMountedChargeKill).
+                    if (evt.AttackRoll?.RuleAttackWithWeapon != null && evt.AttackRoll.RuleAttackWithWeapon.IsCharge)
+                    {
+                        stats.ChargeDamage += damage;
+                        if (damage > stats.MaxMountedChargeHit) stats.MaxMountedChargeHit = damage;
+                    }
+
                     // Suivi du plus gros pic de dégâts sur une fenêtre glissante de 6 s (~1 round).
                     float nowB = UnityEngine.Time.realtimeSinceStartup;
                     stats.RecentDamageWindow.Add(new KeyValuePair<float, int>(nowB, damage));
@@ -4941,8 +4965,12 @@ public class UnitCombatStats
             }
 
             // 8. Pounce Provider (Skald)
+            // La capacité de bond (Pounce) partagée par le Scalde n'a de valeur que si un allié
+            // s'en est réellement servi pour charger : on exige donc qu'au moins une charge ait
+            // infligé des dégâts dans le groupe (signal officiel IsCharge d'Owlcat).
             bool isSkald = stat.UnitData != null && stat.UnitData.Progression.Classes.Any(c => c.CharacterClass.name.ToLower().Contains("skald"));
-            if (isSkald && stat.SupportBuffsCast >= 15)
+            bool partyLandedCharge = Main.Tracker != null && Main.Tracker.combatStats.Values.Any(s => s.IsAlly && s.ChargeDamage > 0);
+            if (isSkald && stat.SupportBuffsCast >= 15 && partyLandedCharge)
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_8"), Localization.GetFormatted("ACH_DESC_8", stat), Color.white, 78));
             }
@@ -5174,11 +5202,14 @@ public class UnitCombatStats
             }
 
             // 40. Le pourfendeur du mal (CORRIGÉ : Vérification absolue via l'audit des modificateurs de dégâts d'Owlcat)
-            bool actuallyUsedSmiteEvil = stat.DamageModifiersAudit.Values.Any(modDict => 
-                modDict.Keys.Any(k => k.IndexOf("smite evil", StringComparison.OrdinalIgnoreCase) >= 0 || 
+            // Le Châtiment du Mal (Smite Evil) est une capacité de classe du Paladin : on exige donc
+            // à la fois la classe Paladin ET la trace réelle du modificateur dans l'audit des dégâts.
+            bool isPaladin = stat.UnitData != null && stat.UnitData.Progression.Classes.Any(c => c.CharacterClass.name.ToLower().Contains("paladin"));
+            bool actuallyUsedSmiteEvil = stat.DamageModifiersAudit.Values.Any(modDict =>
+                modDict.Keys.Any(k => k.IndexOf("smite evil", StringComparison.OrdinalIgnoreCase) >= 0 ||
                                       k.IndexOf("châtiment du mal", StringComparison.OrdinalIgnoreCase) >= 0));
 
-            if (actuallyUsedSmiteEvil && (stat.TotalDamage + stat.SummonDamage) >= (partyLevel * 25))
+            if (isPaladin && actuallyUsedSmiteEvil && (stat.TotalDamage + stat.SummonDamage) >= (partyLevel * 25))
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_40"), Localization.GetFormatted("ACH_DESC_40", stat), Color.white, 89));
             }
