@@ -14,11 +14,8 @@ This mod captures every mechanical contribution of your companions, pets, and en
 * **Session history**: browse your previous fights, not just the last one.
 * **Reanimated thralls block**: a Lich's risen undead get their own dedicated section, kept apart from the master's own stats.
 * **Named dispel tracking**: lists the exact spells you dispelled.
-* **50 one-handed accolades**: a dedicated set for duelists, finesse blades, and Aldori swordlords, from A+ to SSS+.
-* **Rank titles**: every grade now carries a title (Apotheosis, Legend, Paragon, and so on).
-* **Alignment-tinted UI and colorblind mode**: the frame shifts light for Good and dark for Evil, with an optional colorblind palette.
 * **Customizable shortcuts and numeric UI scale**: all configurable in the UMM settings page (`Ctrl + F10`).
-* **Cleaner stat isolation**: summon, reanimated, and domination stats no longer leak into the master or the party totals. Enemy grading was reworked, and SSS+ is now a genuine feat to reach.
+* **Cleaner stat isolation**: summon, reanimated, and domination stats no longer leak into the master or the party totals.
 
 ---
 
