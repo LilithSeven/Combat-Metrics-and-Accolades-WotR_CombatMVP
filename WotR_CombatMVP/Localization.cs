@@ -20,6 +20,8 @@ namespace WotR_CombatMVP
 
         public static void Init(string modPath)
         {
+            if (string.IsNullOrEmpty(modPath)) return;
+
             s_Localizations.Clear();
 
             var locDir = Path.Combine(modPath, "Localization");
@@ -92,82 +94,129 @@ namespace WotR_CombatMVP
 
         /// <summary>
         /// Extrait et formate une chaîne de caractères en remplaçant les jetons dynamiques de genre, d'accord et d'environnement.
+        /// VERSION OPTIMISÉE (Zéro-Allocation sur les jetons absents)
         /// </summary>
         public static string GetFormatted(string key, UnitCombatStats stat, string damage = null, string kills = null, string extra = null)
         {
             string template = GetStringById(key);
             if (string.IsNullOrEmpty(template)) return key;
+            if (stat == null) return template; // SÉCURITÉ ANTI-CRASH
 
-            // Détecte si la langue actuelle du jeu est l'anglais
-            bool isEnglish = LocalizationManager.CurrentLocale == Locale.enGB;
+            // Résolution des pronoms et accords de genre pour CHACUNE des 8 langues prises en charge.
+            // Auparavant seul l'anglais était distingué et toutes les autres langues retombaient sur le
+            // français (ex: un joueur espagnol voyait "lui/elle" au lieu de "él/ella").
+            bool fem = stat.Gender == Kingmaker.Blueprints.Gender.Female;
+            string pronoun, pronounObj, accord, titlePrefix;
+            switch (LocalizationManager.CurrentLocale)
+            {
+                case Locale.frFR:
+                    pronoun = fem ? "Elle" : "Il";
+                    pronounObj = fem ? "elle" : "lui";
+                    accord = fem ? "e" : "";
+                    titlePrefix = fem ? "La " : "Le ";
+                    break;
+                case Locale.deDE:
+                    pronoun = fem ? "Sie" : "Er";
+                    pronounObj = fem ? "sie" : "ihn";
+                    accord = "";
+                    titlePrefix = fem ? "Die " : "Der ";
+                    break;
+                case Locale.esES:
+                    pronoun = fem ? "Ella" : "Él";
+                    pronounObj = fem ? "ella" : "él";
+                    accord = fem ? "a" : "o";
+                    titlePrefix = fem ? "La " : "El ";
+                    break;
+                case Locale.itIT:
+                    pronoun = fem ? "Lei" : "Lui";
+                    pronounObj = fem ? "lei" : "lui";
+                    accord = fem ? "a" : "o";
+                    titlePrefix = fem ? "La " : "Il ";
+                    break;
+                case Locale.ptBR:
+                    pronoun = fem ? "Ela" : "Ele";
+                    pronounObj = fem ? "ela" : "ele";
+                    accord = fem ? "a" : "o";
+                    titlePrefix = fem ? "A " : "O ";
+                    break;
+                case Locale.ruRU:
+                    pronoun = fem ? "Она" : "Он";
+                    pronounObj = fem ? "её" : "его";
+                    accord = fem ? "а" : "";
+                    titlePrefix = "";
+                    break;
+                case Locale.zhCN:
+                    pronoun = fem ? "她" : "他";
+                    pronounObj = fem ? "她" : "他";
+                    accord = "";
+                    titlePrefix = "";
+                    break;
+                case Locale.enGB:
+                default:
+                    pronoun = fem ? "She" : "He";
+                    pronounObj = fem ? "her" : "him";
+                    accord = "";
+                    titlePrefix = "The ";
+                    break;
+            }
 
-            // Configuration adaptative et croisée des pronoms et accords de genre
-            string pronoun = stat.Gender == Kingmaker.Blueprints.Gender.Female 
-                ? (isEnglish ? "She" : "Elle") 
-                : (isEnglish ? "He" : "Il");
+            if (template.Contains("{pronoun}")) template = template.Replace("{pronoun}", pronoun);
+            if (template.Contains("{pronounObj}")) template = template.Replace("{pronounObj}", pronounObj);
+            if (template.Contains("{accord}")) template = template.Replace("{accord}", accord);
+            if (template.Contains("{titlePrefix}")) template = template.Replace("{titlePrefix}", titlePrefix);
 
-            string pronounObj = stat.Gender == Kingmaker.Blueprints.Gender.Female 
-                ? (isEnglish ? "her" : "elle") 
-                : (isEnglish ? "him" : "lui");
+            // --- INJECTIONS DYNAMIQUES (Le ToString() n'est appelé que si la balise est vraiment là) ---
+            if (template.Contains("{name}")) template = template.Replace("{name}", stat.Name ?? "");
+            if (template.Contains("{damageTaken}")) template = template.Replace("{damageTaken}", stat.DamageTaken.ToString());
+            if (template.Contains("{physicalDmgTaken}")) template = template.Replace("{physicalDmgTaken}", stat.PhysicalDmgTaken.ToString());
+            if (template.Contains("{attacksDodged}")) template = template.Replace("{attacksDodged}", stat.AttacksDodged.ToString());
+            if (template.Contains("{hitsPhysicalTaken}")) template = template.Replace("{hitsPhysicalTaken}", stat.HitsPhysicalTaken.ToString());
+            if (template.Contains("{savesFortFailed}")) template = template.Replace("{savesFortFailed}", stat.SavesFortFailed.ToString());
+            if (template.Contains("{savesFortSucceeded}")) template = template.Replace("{savesFortSucceeded}", stat.SavesFortSucceeded.ToString());
+            if (template.Contains("{savesRefFailed}")) template = template.Replace("{savesRefFailed}", stat.SavesRefFailed.ToString());
+            if (template.Contains("{savesRefSucceeded}")) template = template.Replace("{savesRefSucceeded}", stat.SavesRefSucceeded.ToString());
+            if (template.Contains("{savesWillFailed}")) template = template.Replace("{savesWillFailed}", stat.SavesWillFailed.ToString());
+            if (template.Contains("{savesWillSucceeded}")) template = template.Replace("{savesWillSucceeded}", stat.SavesWillSucceeded.ToString());
+            if (template.Contains("{attacksAttempted}")) template = template.Replace("{attacksAttempted}", stat.AttacksAttempted.ToString());
+            if (template.Contains("{attacksLanded}")) template = template.Replace("{attacksLanded}", stat.AttacksLanded.ToString());
+            if (template.Contains("{spellsResistedCount}")) template = template.Replace("{spellsResistedCount}", stat.SpellsResistedCount.ToString());
+            if (template.Contains("{friendlyFireDmg}")) template = template.Replace("{friendlyFireDmg}", stat.FriendlyFireDmg.ToString());
+            if (template.Contains("{overkillDmg}")) template = template.Replace("{overkillDmg}", stat.OverkillDmg.ToString());
+            if (template.Contains("{totalDamage}")) template = template.Replace("{totalDamage}", (stat.TotalDamage + stat.SummonDamage).ToString());
+            if (template.Contains("{healingDone}")) template = template.Replace("{healingDone}", (stat.HealingDone + stat.VampiricHealing).ToString());
+            if (template.Contains("{crits}")) template = template.Replace("{crits}", stat.Crits.ToString());
+            if (template.Contains("{aoos}")) template = template.Replace("{aoos}", stat.AoOs.ToString());
+            if (template.Contains("{kills}")) template = template.Replace("{kills}", stat.Kills.ToString());
+            if (template.Contains("{maxBurst}")) template = template.Replace("{maxBurst}", stat.MaxBurstDamage.ToString());
+            if (template.Contains("{highDangerKills}")) template = template.Replace("{highDangerKills}", stat.HighDangerKills.ToString());
 
-            string accord = stat.Gender == Kingmaker.Blueprints.Gender.Female 
-                ? (isEnglish ? "" : "e") 
-                : "";
+            // --- INJECTIONS COMPLÉMENTAIRES ---
+            if (template.Contains("{maxSingleHit}")) template = template.Replace("{maxSingleHit}", stat.MaxSingleHit.ToString());
+            if (template.Contains("{vampiricHealing}")) template = template.Replace("{vampiricHealing}", stat.VampiricHealing.ToString());
+            if (template.Contains("{statDamage}")) template = template.Replace("{statDamage}", stat.StatDamage.ToString());
+            if (template.Contains("{negativeLevels}")) template = template.Replace("{negativeLevels}", stat.NegativeLevels.ToString());
+            if (template.Contains("{summonsCount}")) template = template.Replace("{summonsCount}", stat.SummonsCount.ToString());
+            if (template.Contains("{summonDamage}")) template = template.Replace("{summonDamage}", stat.SummonDamage.ToString());
+            if (template.Contains("{dispelledCount}")) template = template.Replace("{dispelledCount}", stat.DispelledCount.ToString());
+            if (template.Contains("{trippedCount}")) template = template.Replace("{trippedCount}", stat.TrippedCount.ToString());
+            if (template.Contains("{scrollsCast}")) template = template.Replace("{scrollsCast}", stat.ScrollsCastCount.ToString());
+            if (template.Contains("{supportBuffsCast}")) template = template.Replace("{supportBuffsCast}", stat.SupportBuffsCast.ToString());
 
-            string titlePrefix = stat.Gender == Kingmaker.Blueprints.Gender.Female 
-                ? (isEnglish ? "The " : "La ") 
-                : (isEnglish ? "The " : "Le ");
-
-            template = template.Replace("{pronoun}", pronoun);
-            template = template.Replace("{pronounObj}", pronounObj);
-            template = template.Replace("{accord}", accord);
-            template = template.Replace("{titlePrefix}", titlePrefix);
-
-            // --- INJECTIONS DYNAMIQUES NOMINATIVES ET TÉLÉMÉTRIQUES ---
-            template = template.Replace("{name}", stat.Name ?? "");
-            template = template.Replace("{damageTaken}", stat.DamageTaken.ToString());
-            template = template.Replace("{physicalDmgTaken}", stat.PhysicalDmgTaken.ToString());
-            template = template.Replace("{attacksDodged}", stat.AttacksDodged.ToString());
-            template = template.Replace("{hitsPhysicalTaken}", stat.HitsPhysicalTaken.ToString());
-            template = template.Replace("{savesFortFailed}", stat.SavesFortFailed.ToString());
-            template = template.Replace("{savesFortSucceeded}", stat.SavesFortSucceeded.ToString());
-            template = template.Replace("{savesRefFailed}", stat.SavesRefFailed.ToString());
-            template = template.Replace("{savesRefSucceeded}", stat.SavesRefSucceeded.ToString());
-            template = template.Replace("{savesWillFailed}", stat.SavesWillFailed.ToString());
-            template = template.Replace("{savesWillSucceeded}", stat.SavesWillSucceeded.ToString());
-			template = template.Replace("{attacksAttempted}", stat.AttacksAttempted.ToString());
-            template = template.Replace("{attacksLanded}", stat.AttacksLanded.ToString());
-            template = template.Replace("{spellsResistedCount}", stat.SpellsResistedCount.ToString());
-            template = template.Replace("{friendlyFireDmg}", stat.FriendlyFireDmg.ToString());
-            template = template.Replace("{overkillDmg}", stat.OverkillDmg.ToString());
-            template = template.Replace("{totalDamage}", (stat.TotalDamage + stat.SummonDamage).ToString());
-            template = template.Replace("{healingDone}", (stat.HealingDone + stat.VampiricHealing).ToString());
-            template = template.Replace("{crits}", stat.Crits.ToString());
-            template = template.Replace("{aoos}", stat.AoOs.ToString());
-			// --- INJECTIONS COMPLÉMENTAIRES POUR LES IMPRESSIVE ACHIEVEMENTS ---
-            template = template.Replace("{maxSingleHit}", stat.MaxSingleHit.ToString());
-            template = template.Replace("{vampiricHealing}", stat.VampiricHealing.ToString());
-            template = template.Replace("{statDamage}", stat.StatDamage.ToString());
-            template = template.Replace("{negativeLevels}", stat.NegativeLevels.ToString());
-            template = template.Replace("{summonsCount}", stat.SummonsCount.ToString());
-            template = template.Replace("{summonDamage}", stat.SummonDamage.ToString());
-            template = template.Replace("{dispelledCount}", stat.DispelledCount.ToString());
-            template = template.Replace("{trippedCount}", stat.TrippedCount.ToString());
-            template = template.Replace("{scrollsCast}", stat.ScrollsCastCount.ToString());
-            template = template.Replace("{supportBuffsCast}", stat.SupportBuffsCast.ToString());
-
-            // Calcul dynamique unifié du cumul des Crowd Control (CC) appliqués
-            int totalCC = stat.CC_Prone + stat.CC_Paralyzed + stat.CC_Stunned + stat.CC_Frightened + 
-                          stat.CC_Shaken + stat.CC_Cowering + stat.CC_Nauseated + stat.CC_Sickened + 
-                          stat.CC_Blinded + stat.CC_Entangled + stat.CC_Confused + stat.CC_Exhausted + 
-                          stat.CC_Fatigued + stat.CC_Slowed + stat.CC_Staggered + stat.CC_Dazed + 
-                          stat.CC_Dazzled + stat.CC_Helpless + stat.CC_DeathsDoor;
-            template = template.Replace("{totalCC}", totalCC.ToString());
+            // Calcul dynamique unifié du cumul des Crowd Control (CC) : Uniquement s'il est requis !
+            if (template.Contains("{totalCC}"))
+            {
+                int totalCC = stat.CC_Prone + stat.CC_Paralyzed + stat.CC_Stunned + stat.CC_Frightened + 
+                              stat.CC_Shaken + stat.CC_Cowering + stat.CC_Nauseated + stat.CC_Sickened + 
+                              stat.CC_Blinded + stat.CC_Entangled + stat.CC_Confused + stat.CC_Exhausted + 
+                              stat.CC_Fatigued + stat.CC_Slowed + stat.CC_Staggered + stat.CC_Dazed + 
+                              stat.CC_Dazzled + stat.CC_Helpless + stat.CC_DeathsDoor;
+                template = template.Replace("{totalCC}", totalCC.ToString());
+            }
 
             // Remplacements historiques pour rétrocompatibilité
-            if (damage != null) template = template.Replace("{damage}", damage);
-            if (kills != null) template = template.Replace("{kills}", kills);
-            if (extra != null) template = template.Replace("{extra}", extra);
+            if (damage != null && template.Contains("{damage}")) template = template.Replace("{damage}", damage);
+            if (kills != null && template.Contains("{kills}")) template = template.Replace("{kills}", kills);
+            if (extra != null && template.Contains("{extra}")) template = template.Replace("{extra}", extra);
 
             return template;
         }

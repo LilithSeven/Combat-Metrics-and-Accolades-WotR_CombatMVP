@@ -6,6 +6,22 @@ This mod captures every mechanical contribution of your companions, pets, and en
 
 ---
 
+## New in v1.4.0
+
+* **Real-time DPS meter overlay**: a small, movable, resizable window that tracks whoever you choose (allies, everyone, or a pinned character). Toggle with `Alt + O`.
+* **Campaign Ledger**: persistent statistics for your whole run, a campaign nemesis, each character's top 3 grades, and a text export (`Alt + L`). Stored safely in the mod folder, never in your save.
+* **Combat comparison table**: every fighter side by side in one view (`Alt + K`).
+* **Session history**: browse your previous fights, not just the last one.
+* **Reanimated thralls block**: a Lich's risen undead get their own dedicated section, kept apart from the master's own stats.
+* **Named dispel tracking**: lists the exact spells you dispelled.
+* **50 one-handed accolades**: a dedicated set for duelists, finesse blades, and Aldori swordlords, from A+ to SSS+.
+* **Rank titles**: every grade now carries a title (Apotheosis, Legend, Paragon, and so on).
+* **Alignment-tinted UI and colorblind mode**: the frame shifts light for Good and dark for Evil, with an optional colorblind palette.
+* **Customizable shortcuts and numeric UI scale**: all configurable in the UMM settings page (`Ctrl + F10`).
+* **Cleaner stat isolation**: summon, reanimated, and domination stats no longer leak into the master or the party totals. Enemy grading was reworked, and SSS+ is now a genuine feat to reach.
+
+---
+
 ## Key Features
 
 * **Real-Time Combat Metrics**: Tracks physical damage types (slashing, piercing, bludgeoning), elemental energies, holy/unholy, precision sneak attacks, healing, and overkills (damage dealt below 0 HP).
@@ -34,9 +50,13 @@ To ensure that the text remain perfectly readable, I highly recommend using imag
 
 ## How to Use
 
-* Open / Close UI: **`Alt + M`**.
-* Quick Dismiss: **`Escape`** (ESC) when the scoreboard is open, or click the red **`X`** button in the top right corner.
-* Pagination: Use the **`<`** and **`>`** side buttons to navigate through each character's detailed folder.
+* Open / Close the dashboard: **`Alt + M`** (or `Escape`, or the red **`X`**).
+* Real-time overlay: **`Alt + O`**.
+* Campaign Ledger: **`Alt + L`**.
+* Combat comparison table: **`Alt + K`**.
+* Mod settings (shortcuts, overlay, UI scale, ledger): **`Ctrl + F10`** in the Unity Mod Manager window.
+* Pagination: the **`<`** and **`>`** side buttons, and the history arrows in the top left to browse past fights.
+* Every shortcut is fully customizable in the settings page, and the UI scale accepts a direct numeric value from 0.50 to 2.00.
 
 ---
 

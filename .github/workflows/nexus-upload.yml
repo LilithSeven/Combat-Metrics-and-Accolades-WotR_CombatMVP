@@ -26,7 +26,7 @@ jobs:
         uses: Nexus-Mods/upload-action@main
         with:
           api_key: ${{ secrets.NEXUSMODS_API_KEY }}
-          file_group_id: ${{ vars.NEXUSMODS_FILE_GROUP_ID }}
+          file_group_id: 7504178
           filename: ${{ env.ZIP_FILE }}
           version: ${{ env.VERSION }}
           description: ${{ github.event.release.body }}

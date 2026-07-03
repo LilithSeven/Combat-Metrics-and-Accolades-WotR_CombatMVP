@@ -76,10 +76,16 @@ namespace WotR_CombatMVP
             // INITIALISATION DES PARAMÈTRES UTILISATEUR
             SettingsManager.Init(ModPath);
 
+            // INITIALISATION DU REGISTRE DE CAMPAGNE (persistance sûre pour les sauvegardes)
+            LedgerManager.Init(ModPath);
+
             try
             {
                 var harmony = new Harmony(modEntry.Info.Id);
                 harmony.PatchAll(Assembly.GetExecutingAssembly());
+
+                modEntry.OnGUI = ModSettingsUI.OnGUI;
+                modEntry.OnSaveGUI = ModSettingsUI.OnSaveGUI;
 
                 Tracker = new CombatTracker();
                 EventBus.Subscribe(Tracker);
@@ -100,9 +106,260 @@ namespace WotR_CombatMVP
         }
     }
 
+    public static class ModSettingsUI
+    {
+        private static int s_ListeningListId = -1; // 0 = tableau de bord, 1 = overlay
+        private static int s_ListeningIndex = -1;
+        private static string s_ScaleText = null;
+
+        private static List<Keybind> ListeningList(MVPSettings s)
+        {
+            if (s_ListeningListId == 0) return s.ToggleKeybinds;
+            if (s_ListeningListId == 1) return s.OverlayToggleKeybinds;
+            if (s_ListeningListId == 2) return s.LedgerToggleKeybinds;
+            if (s_ListeningListId == 3) return s.CompareToggleKeybinds;
+            return null;
+        }
+
+        private static bool IsModifierKey(KeyCode kc)
+        {
+            return kc == KeyCode.LeftControl || kc == KeyCode.RightControl ||
+                   kc == KeyCode.LeftAlt || kc == KeyCode.RightAlt ||
+                   kc == KeyCode.LeftShift || kc == KeyCode.RightShift ||
+                   kc == KeyCode.LeftCommand || kc == KeyCode.RightCommand ||
+                   kc == KeyCode.AltGr;
+        }
+
+        public static void OnSaveGUI(UnityModManager.ModEntry modEntry)
+        {
+            SettingsManager.Save();
+        }
+
+        public static void OnGUI(UnityModManager.ModEntry modEntry)
+        {
+            var s = SettingsManager.Current;
+            if (s == null) return;
+            if (s.ToggleKeybinds == null) s.ToggleKeybinds = new List<Keybind>();
+            if (s.OverlayToggleKeybinds == null) s.OverlayToggleKeybinds = new List<Keybind>();
+            if (s.LedgerToggleKeybinds == null) s.LedgerToggleKeybinds = new List<Keybind>();
+            if (s.CompareToggleKeybinds == null) s.CompareToggleKeybinds = new List<Keybind>();
+
+            // Capture d'une touche pendant le mode d'écoute (rebind), pour la liste actuellement ciblée.
+            var listening = ListeningList(s);
+            if (listening != null && s_ListeningIndex >= 0 && s_ListeningIndex < listening.Count &&
+                Event.current != null && Event.current.type == EventType.KeyDown)
+            {
+                KeyCode kc = Event.current.keyCode;
+                if (kc == KeyCode.Escape)
+                {
+                    s_ListeningListId = -1;
+                    s_ListeningIndex = -1;
+                    Event.current.Use();
+                }
+                else if (kc != KeyCode.None && !IsModifierKey(kc))
+                {
+                    var kb = listening[s_ListeningIndex];
+                    kb.Ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl) || Event.current.control;
+                    kb.Alt = Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt) || Event.current.alt;
+                    kb.Shift = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift) || Event.current.shift;
+                    kb.Key = kc;
+                    s_ListeningListId = -1;
+                    s_ListeningIndex = -1;
+                    SettingsManager.Save();
+                    Event.current.Use();
+                }
+            }
+
+            // --- ÉCHELLE DE L'INTERFACE (SAISIE NUMÉRIQUE + PALIERS) ---
+            GUILayout.Label(Localization.GetStringById("ui.settings.section_display") ?? "Display", new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold });
+            if (s_ScaleText == null) s_ScaleText = s.UiScale.ToString("0.00");
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(Localization.GetStringById("ui.settings.ui_scale") ?? "UI Scale:", GUILayout.Width(120));
+            s_ScaleText = GUILayout.TextField(s_ScaleText, GUILayout.Width(70));
+            if (GUILayout.Button("-", GUILayout.Width(30)))
+            {
+                s.UiScale = ClampScale(s.UiScale - 0.05f);
+                s_ScaleText = s.UiScale.ToString("0.00");
+                SettingsManager.Save();
+            }
+            if (GUILayout.Button("+", GUILayout.Width(30)))
+            {
+                s.UiScale = ClampScale(s.UiScale + 0.05f);
+                s_ScaleText = s.UiScale.ToString("0.00");
+                SettingsManager.Save();
+            }
+            if (GUILayout.Button(Localization.GetStringById("ui.settings.apply") ?? "Apply", GUILayout.Width(80)))
+            {
+                if (float.TryParse(s_ScaleText, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float parsed) ||
+                    float.TryParse(s_ScaleText, out parsed))
+                {
+                    s.UiScale = ClampScale(parsed);
+                    s_ScaleText = s.UiScale.ToString("0.00");
+                    SettingsManager.Save();
+                }
+            }
+            GUILayout.EndHorizontal();
+            GUILayout.Label(Localization.GetStringById("ui.settings.ui_scale_hint") ?? "Allowed range: 0.50 to 2.00 (numpad supported).", new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Italic });
+
+            bool tint = GUILayout.Toggle(s.AlignmentTintEnabled, "  " + (Localization.GetStringById("ui.settings.alignment_tint") ?? "Tint the frame by the character's alignment (light for Good, dark for Evil)"));
+            if (tint != s.AlignmentTintEnabled) { s.AlignmentTintEnabled = tint; SettingsManager.Save(); }
+
+            bool cbm = GUILayout.Toggle(s.ColorblindMode, "  " + (Localization.GetStringById("ui.settings.colorblind") ?? "Colorblind mode (blue/orange instead of green/red)"));
+            if (cbm != s.ColorblindMode) { s.ColorblindMode = cbm; SettingsManager.Save(); }
+
+            GUILayout.Space(12);
+
+            // --- RACCOURCIS DU TABLEAU DE BORD ---
+            DrawKeybindSection(Localization.GetStringById("ui.settings.section_shortcuts") ?? "Dashboard open/close shortcuts",
+                s.ToggleKeybinds, 0,
+                () => new List<Keybind> { new Keybind(false, true, false, KeyCode.M), new Keybind(false, true, false, KeyCode.Space) });
+
+            GUILayout.Space(14);
+
+            // --- OVERLAY TEMPS RÉEL (COMPTEUR DPS) ---
+            GUILayout.Label(Localization.GetStringById("ui.settings.section_overlay") ?? "Real-time overlay (DPS meter)", new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold });
+
+            bool en = GUILayout.Toggle(s.OverlayEnabled, "  " + (Localization.GetStringById("ui.settings.overlay_enabled") ?? "Enable overlay"));
+            if (en != s.OverlayEnabled) { s.OverlayEnabled = en; SettingsManager.Save(); }
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(Localization.GetStringById("ui.settings.overlay_mode") ?? "Tracks:", GUILayout.Width(140));
+            string[] modes = {
+                Localization.GetStringById("ui.settings.overlay_mode_allies") ?? "Allies",
+                Localization.GetStringById("ui.settings.overlay_mode_all") ?? "Everyone",
+                Localization.GetStringById("ui.settings.overlay_mode_pinned") ?? "Pinned"
+            };
+            int nm = GUILayout.Toolbar(Mathf.Clamp(s.OverlayMode, 0, 2), modes, GUILayout.Width(300));
+            if (nm != s.OverlayMode) { s.OverlayMode = nm; SettingsManager.Save(); }
+            GUILayout.EndHorizontal();
+
+            if (s.OverlayMode == 2)
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(Localization.GetStringById("ui.settings.overlay_pinned") ?? "Pinned name:", GUILayout.Width(140));
+                string pn = GUILayout.TextField(s.OverlayPinnedName ?? "", GUILayout.Width(200));
+                if (pn != s.OverlayPinnedName) { s.OverlayPinnedName = pn; SettingsManager.Save(); }
+                GUILayout.EndHorizontal();
+            }
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(Localization.GetStringById("ui.settings.overlay_metric") ?? "Metric:", GUILayout.Width(140));
+            string[] metrics = {
+                Localization.GetStringById("ui.overlay.metric_damage") ?? "Damage",
+                "DPS",
+                Localization.GetStringById("ui.overlay.metric_healing") ?? "Healing"
+            };
+            int nmet = GUILayout.Toolbar(Mathf.Clamp(s.OverlayMetric, 0, 2), metrics, GUILayout.Width(300));
+            if (nmet != s.OverlayMetric) { s.OverlayMetric = nmet; SettingsManager.Save(); }
+            GUILayout.EndHorizontal();
+
+            s.OverlayWidth = DrawSlider(Localization.GetStringById("ui.settings.overlay_width") ?? "Width", s.OverlayWidth, 180f, 600f, "0");
+            s.OverlayOpacity = DrawSlider(Localization.GetStringById("ui.settings.overlay_opacity") ?? "Opacity", s.OverlayOpacity, 0.2f, 1f, "0.00");
+            s.OverlayScale = DrawSlider(Localization.GetStringById("ui.settings.overlay_scale") ?? "Scale", s.OverlayScale, 0.6f, 2f, "0.00");
+            s.OverlayMaxRows = (int)Math.Round(DrawSlider(Localization.GetStringById("ui.settings.overlay_max_rows") ?? "Max rows", s.OverlayMaxRows, 1f, 15f, "0"));
+
+            bool co = GUILayout.Toggle(s.OverlayCombatOnly, "  " + (Localization.GetStringById("ui.settings.overlay_combat_only") ?? "Show only during combat"));
+            if (co != s.OverlayCombatOnly) { s.OverlayCombatOnly = co; SettingsManager.Save(); }
+
+            GUILayout.Space(6);
+            DrawKeybindSection(Localization.GetStringById("ui.settings.section_overlay_shortcuts") ?? "Overlay toggle shortcuts",
+                s.OverlayToggleKeybinds, 1,
+                () => new List<Keybind> { new Keybind(false, true, false, KeyCode.O) });
+
+            GUILayout.Space(14);
+
+            // --- REGISTRE DE CAMPAGNE ---
+            GUILayout.Label(Localization.GetStringById("ui.settings.section_ledger") ?? "Campaign ledger (persistent run stats)", new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold });
+            bool le = GUILayout.Toggle(s.LedgerEnabled, "  " + (Localization.GetStringById("ui.settings.ledger_enabled") ?? "Record campaign statistics (safe, stored in the mod folder)"));
+            if (le != s.LedgerEnabled) { s.LedgerEnabled = le; SettingsManager.Save(); }
+            GUILayout.Space(4);
+            DrawKeybindSection(Localization.GetStringById("ui.settings.section_ledger_shortcuts") ?? "Campaign ledger shortcuts",
+                s.LedgerToggleKeybinds, 2,
+                () => new List<Keybind> { new Keybind(false, true, false, KeyCode.L) });
+
+            GUILayout.Space(14);
+
+            // --- TABLEAU COMPARATIF DU COMBAT ---
+            GUILayout.Label(Localization.GetStringById("ui.settings.section_compare") ?? "Combat comparison table", new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold });
+            DrawKeybindSection(Localization.GetStringById("ui.settings.section_compare_shortcuts") ?? "Comparison table shortcuts",
+                s.CompareToggleKeybinds, 3,
+                () => new List<Keybind> { new Keybind(false, true, false, KeyCode.K) });
+        }
+
+        private static float DrawSlider(string label, float val, float min, float max, string fmt)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(label, GUILayout.Width(140));
+            float nv = GUILayout.HorizontalSlider(val, min, max, GUILayout.Width(220), GUILayout.Height(18));
+            GUILayout.Label(nv.ToString(fmt, System.Globalization.CultureInfo.InvariantCulture), GUILayout.Width(50));
+            GUILayout.EndHorizontal();
+            return nv;
+        }
+
+        // Éditeur de liste de raccourcis réutilisable (tableau de bord et overlay partagent la même logique).
+        private static void DrawKeybindSection(string title, List<Keybind> binds, int listId, Func<List<Keybind>> defaults)
+        {
+            GUILayout.Label(title, new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold });
+            for (int i = 0; i < binds.Count; i++)
+            {
+                var kb = binds[i];
+                GUILayout.BeginHorizontal();
+                GUILayout.Label((i + 1) + ".", GUILayout.Width(25));
+                GUILayout.Label(kb != null ? kb.ToDisplayString() : "—", GUILayout.Width(200));
+                if (s_ListeningListId == listId && s_ListeningIndex == i)
+                {
+                    GUILayout.Label(Localization.GetStringById("ui.settings.press_key") ?? "Press a key... (Esc to cancel)");
+                }
+                else
+                {
+                    if (GUILayout.Button(Localization.GetStringById("ui.settings.rebind") ?? "Rebind", GUILayout.Width(90)))
+                    {
+                        s_ListeningListId = listId;
+                        s_ListeningIndex = i;
+                    }
+                    if (GUILayout.Button(Localization.GetStringById("ui.settings.remove") ?? "Remove", GUILayout.Width(90)))
+                    {
+                        binds.RemoveAt(i);
+                        SettingsManager.Save();
+                        GUILayout.EndHorizontal();
+                        break;
+                    }
+                }
+                GUILayout.EndHorizontal();
+            }
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button(Localization.GetStringById("ui.settings.add_shortcut") ?? "Add a shortcut", GUILayout.Width(150)))
+            {
+                binds.Add(new Keybind());
+                s_ListeningListId = listId;
+                s_ListeningIndex = binds.Count - 1;
+                SettingsManager.Save();
+            }
+            if (GUILayout.Button(Localization.GetStringById("ui.settings.reset_shortcuts") ?? "Restore defaults", GUILayout.Width(150)))
+            {
+                binds.Clear();
+                binds.AddRange(defaults());
+                s_ListeningListId = -1;
+                s_ListeningIndex = -1;
+                SettingsManager.Save();
+            }
+            GUILayout.EndHorizontal();
+        }
+
+        private static float ClampScale(float v)
+        {
+            if (float.IsNaN(v) || float.IsInfinity(v)) return 1.0f;
+            if (v < 0.5f) v = 0.5f;
+            if (v > 2.0f) v = 2.0f;
+            return (float)Math.Round(v / 0.05f) * 0.05f;
+        }
+    }
+
     public class MVPAchievement
     {
-        public string Tier; 
+        public string Tier;
         public string Title;
         public string FlavorText;
         public Color TitleColor;
@@ -116,6 +373,54 @@ namespace WotR_CombatMVP
             TitleColor = color; 
             Weight = weight;
         }
+    }
+
+    public class SummonCombatStats
+    {
+        public Dictionary<string, int> DamageBySource = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, Dictionary<string, int>> DamageModifiersAudit = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, int> SavesFortFailedSources = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, int> SavesRefFailedSources = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, int> SavesWillFailedSources = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        public HashSet<string> SufferedDebuffs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        public int Damage = 0;
+        public int HealingDone = 0;
+        public int VampiricHealing = 0;
+        public int StatDamage = 0;
+        public int NegativeLevels = 0;
+        public int Kills = 0;
+        public int InstaKills = 0;
+        public int DamageTaken = 0;
+        public int PhysicalDmgTaken = 0;
+        public int HitsPhysicalTaken = 0;
+        public int AttacksDodged = 0;
+        public int TimesDowned = 0;
+        public int FriendlyFireDmg = 0;
+        public int SavesSucceeded = 0;
+        public int SavesFailed = 0;
+        public int SavesFortFailed = 0;
+        public int SavesRefFailed = 0;
+        public int SavesWillFailed = 0;
+        public int SavesFortSucceeded = 0;
+        public int SavesRefSucceeded = 0;
+        public int SavesWillSucceeded = 0;
+
+        public bool HasAny =>
+            Damage > 0 ||
+            HealingDone > 0 ||
+            VampiricHealing > 0 ||
+            StatDamage > 0 ||
+            NegativeLevels > 0 ||
+            Kills > 0 ||
+            InstaKills > 0 ||
+            DamageTaken > 0 ||
+            AttacksDodged > 0 ||
+            HitsPhysicalTaken > 0 ||
+            TimesDowned > 0 ||
+            FriendlyFireDmg > 0 ||
+            SavesSucceeded > 0 ||
+            SavesFailed > 0 ||
+            SufferedDebuffs.Count > 0;
     }
 
 public class UnitCombatStats
@@ -167,6 +472,7 @@ public class UnitCombatStats
             AttacksDodged > 0 ||
             SummonDamage > 0 ||
             SummonKills > 0 ||
+            Summons.HasAny ||
             SupportBuffsCast > 0 ||
             FriendlyFireDmg > 0 ||
             DispelledCount > 0 ||
@@ -211,6 +517,10 @@ public class UnitCombatStats
         public int Crits = 0;
         public int AoOs = 0;
         public int MaxSingleHit = 0;
+        // Plus gros pic de dégâts sur une fenêtre glissante de 6 s (~1 round). Fenêtre transitoire non sérialisée.
+        public int MaxBurstDamage = 0;
+        public List<KeyValuePair<float, int>> RecentDamageWindow = new List<KeyValuePair<float, int>>();
+        public int MaxMountedChargeHit = 0;
 		// --- NOUVELLES VARIABLES DE TÉLÉMÉTRIE OFFENSIVE & PRÉCISION ---
         public int AttacksAttempted = 0;       // Nombre total d'attaques physiques tentées
         public int AttacksLanded = 0;          // Nombre total d'attaques physiques ayant touché la cible
@@ -237,10 +547,12 @@ public class UnitCombatStats
         public Dictionary<string, Dictionary<string, int>> SpellsSavedSources = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
         public int SummonDamage = 0;
         public int SummonKills = 0;
+        public SummonCombatStats Summons = new SummonCombatStats();
 
         // --- COMPTEURS COMPLÉMENTAIRES v1.4.1 ---
         public int SummonsCount = 0;
         public int DispelledCount = 0;
+        public Dictionary<string, int> DispelledSpells = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         public int TrippedCount = 0;
         public int ResurrectedCount = 0;
         public int GuardianAngelHealing = 0;
@@ -270,8 +582,18 @@ public class UnitCombatStats
         public string Grade = "F-";
         public List<MVPAchievement> Achievements = new List<MVPAchievement>();
 
+        // --- ALIGNEMENT (0 = neutre, 1 = bon/lumineux, 2 = mauvais/sombre) ---
+        // Utilisé pour teinter l'ambiance de la fiche et, à terme, le ton des hauts faits.
+        public int AlignmentTone = 0;
+
         // --- NOUVEAU (PHASE DE DOMINATION) ---
         public bool IsDominatedSheet = false;
+
+        // --- RÉANIMATION (SERVITEURS MORTS-VIVANTS DE LA LICHE) ---
+        // Une créature réanimée est consolidée dans le bloc dédié de son réanimateur et retirée
+        // du pager principal ; ReanimatorUniqueId fait le lien avec la fiche du maître.
+        public bool IsReanimated = false;
+        public string ReanimatorUniqueId = null;
 
         // --- NOUVEAU : Cache de portrait ---
         public Texture2D CachedPortrait = null;
@@ -281,10 +603,17 @@ public class UnitCombatStats
     {
         public static CombatMVP_UI Instance;
         public bool showWindow = false;
+        public bool showLedger = false;
+        private Vector2 ledgerScroll = Vector2.zero;
+        private string lastExportPath = null;
+        private bool ledgerResetArmed = false;
+        public bool showCompare = false;
+        private Vector2 compareScroll = Vector2.zero;
         private Rect fullScreenRect;
         private Texture2D darkBackground;
         private List<UnitCombatStats> allCombatants = new List<UnitCombatStats>();
         private int currentPageIndex = 0;
+        private int historyIndex = -1; // -1 = combat courant (live), 0..n = instantané d'historique
         private Vector2 scrollPosition;
 		private Vector2 leftScrollPosition; // --- NOUVEAU : Position de défilement de la colonne de gauche ---
 
@@ -293,6 +622,15 @@ public class UnitCombatStats
 		// --- NOUVEAU : Barre de recherche et filtrage dynamique ---
         private string searchQuery = "";
         private List<UnitCombatStats> filteredCombatants = new List<UnitCombatStats>();
+
+        // --- OVERLAY TEMPS RÉEL (compteur "DPS meter" déplaçable) ---
+        private Rect overlayRect;
+        private bool overlayRectInit = false;
+        private bool overlayPosDirty = false;
+        private Texture2D overlayPixel;
+        private class OverlayRow { public string Name; public float Value; public bool IsAlly; public float Frac; }
+        private readonly List<OverlayRow> overlayRows = new List<OverlayRow>();
+        private string overlayMetricLabel = "";
 
         private void EnsureUIInitialized()
         {
@@ -350,22 +688,88 @@ public class UnitCombatStats
 
         void Update()
         {
-            // AJOUT DU DOUBLE RACCOURCI IMMUNISÉ CONTRE LES REGLAGES OS : Alt + Space OU Alt + M
-            if ((Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt)) && (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.M)))
-            {
-                // CORRECTION UX : On ne bloque plus l'ouverture si combatStats.Count == 0. 
-                // On laisse l'UI s'ouvrir pour montrer au joueur que le mod fonctionne bien !
-                if (Main.Tracker == null) return; 
+            if (Main.Tracker == null) return;
 
-                showWindow = !showWindow;
-                EnsureUIInitialized();
-                if (invisibleGlassWall != null) invisibleGlassWall.SetActive(showWindow);
-                if (showWindow) RefreshPagination();
+            // Raccourcis d'ouverture/fermeture entièrement configurables (voir la page de réglages UMM).
+            bool toggleRequested = false;
+            var binds = SettingsManager.Current?.ToggleKeybinds;
+            if (binds != null)
+            {
+                foreach (var kb in binds)
+                {
+                    if (kb != null && kb.IsTriggeredThisFrame())
+                    {
+                        toggleRequested = true;
+                        break;
+                    }
+                }
             }
-            else if (showWindow && Input.GetKeyDown(KeyCode.Escape))
+
+            if (toggleRequested)
+            {
+                // CORRECTION UX : On ne bloque plus l'ouverture si combatStats.Count == 0.
+                // On laisse l'UI s'ouvrir pour montrer au joueur que le mod fonctionne bien !
+                showWindow = !showWindow;
+                if (showWindow) { showLedger = false; showCompare = false; }
+                EnsureUIInitialized();
+                if (invisibleGlassWall != null) invisibleGlassWall.SetActive(showWindow || showLedger || showCompare);
+                if (showWindow) { historyIndex = -1; RefreshPagination(); }
+            }
+            else if ((showWindow || showLedger || showCompare) && Input.GetKeyDown(KeyCode.Escape))
             {
                 showWindow = false;
+                showLedger = false;
+                showCompare = false;
                 if (invisibleGlassWall != null) invisibleGlassWall.SetActive(false);
+            }
+
+            // Bascule du Registre de Campagne (raccourci configurable, défaut Alt+L).
+            var ledgerBinds = SettingsManager.Current?.LedgerToggleKeybinds;
+            if (ledgerBinds != null)
+            {
+                foreach (var kb in ledgerBinds)
+                {
+                    if (kb != null && kb.IsTriggeredThisFrame())
+                    {
+                        showLedger = !showLedger;
+                        if (showLedger) { showWindow = false; showCompare = false; ledgerScroll = Vector2.zero; ledgerResetArmed = false; EnsureLedgerRunLoaded(); }
+                        EnsureUIInitialized();
+                        if (invisibleGlassWall != null) invisibleGlassWall.SetActive(showWindow || showLedger || showCompare);
+                        break;
+                    }
+                }
+            }
+
+            // Bascule du Tableau comparatif du combat (raccourci configurable, défaut Alt+K).
+            var compareBinds = SettingsManager.Current?.CompareToggleKeybinds;
+            if (compareBinds != null)
+            {
+                foreach (var kb in compareBinds)
+                {
+                    if (kb != null && kb.IsTriggeredThisFrame())
+                    {
+                        showCompare = !showCompare;
+                        if (showCompare) { showWindow = false; showLedger = false; compareScroll = Vector2.zero; historyIndex = -1; RefreshPagination(); }
+                        EnsureUIInitialized();
+                        if (invisibleGlassWall != null) invisibleGlassWall.SetActive(showWindow || showLedger || showCompare);
+                        break;
+                    }
+                }
+            }
+
+            // Bascule de l'overlay temps réel (raccourci indépendant, entièrement configurable).
+            var overlayBinds = SettingsManager.Current?.OverlayToggleKeybinds;
+            if (overlayBinds != null)
+            {
+                foreach (var kb in overlayBinds)
+                {
+                    if (kb != null && kb.IsTriggeredThisFrame())
+                    {
+                        SettingsManager.Current.OverlayEnabled = !SettingsManager.Current.OverlayEnabled;
+                        SettingsManager.Save();
+                        break;
+                    }
+                }
             }
         }
 
@@ -376,46 +780,73 @@ public class UnitCombatStats
             Localization.Init(Main.ModPath);
             
             var activeParty = Game.Instance.Player.PartyAndPets;
-            
-            // --- SYNCHRONISATION EN TEMPS RÉEL (TOYBOX & RESPEC PROOF) ---
-            foreach (var stat in Main.Tracker.combatStats.Values)
+
+            // Source des données : combat courant (live) ou instantané d'historique de session.
+            bool viewingHistory = historyIndex >= 0 && Main.Tracker.sessionHistory != null && historyIndex < Main.Tracker.sessionHistory.Count;
+            IEnumerable<UnitCombatStats> source;
+            if (viewingHistory)
             {
-                if (stat.UnitData != null)
+                source = Main.Tracker.sessionHistory[historyIndex].Stats;
+            }
+            else
+            {
+                historyIndex = -1;
+                source = Main.Tracker.combatStats.Values;
+
+                // --- SYNCHRONISATION EN TEMPS RÉEL (TOYBOX & RESPEC PROOF), sur le combat courant uniquement ---
+                foreach (var stat in Main.Tracker.combatStats.Values)
                 {
-                    try
+                    if (stat.UnitData != null)
                     {
-                        stat.Level = stat.UnitData.Progression?.CharacterLevel ?? stat.Level;
-                        stat.CR = stat.UnitData.Blueprint?.CR ?? stat.CR;
-                        
-                        string mythicInternal;
-                        string mythic = CombatTracker.ExtractMythicPath(stat.UnitData, out mythicInternal);
-                        stat.MythicPathName = mythic;
-                        stat.MythicPathInternalName = mythicInternal;
-                        
-                        string mythicLower = mythic.ToLower();
-                        string internalLower = mythicInternal.ToLower();
-                        stat.IsEvil = mythicLower.Contains("lich") || mythicLower.Contains("demon") || mythicLower.Contains("swarm") || mythicLower.Contains("devil") || mythicLower.Contains("diable")
-                            || internalLower.Contains("lich") || internalLower.Contains("demon") || internalLower.Contains("swarm") || internalLower.Contains("devil");
+                        try
+                        {
+                            stat.Level = stat.UnitData.Progression?.CharacterLevel ?? stat.Level;
+                            stat.CR = stat.UnitData.Blueprint?.CR ?? stat.CR;
+
+                            string mythicInternal;
+                            string mythic = CombatTracker.ExtractMythicPath(stat.UnitData, out mythicInternal);
+                            stat.MythicPathName = mythic;
+                            stat.MythicPathInternalName = mythicInternal;
+
+                            string mythicLower = mythic.ToLower();
+                            string internalLower = mythicInternal.ToLower();
+                            stat.IsEvil = mythicLower.Contains("lich") || mythicLower.Contains("demon") || mythicLower.Contains("swarm") || mythicLower.Contains("devil") || mythicLower.Contains("diable")
+                                || internalLower.Contains("lich") || internalLower.Contains("demon") || internalLower.Contains("swarm") || internalLower.Contains("devil");
+                        }
+                        catch (Exception) { }
                     }
-                    catch (Exception) { }
                 }
             }
 
-            // On filtre les alliés pour n'afficher que ceux qui ont réellement contribué au combat
-            var allies = Main.Tracker.combatStats.Values
-                .Where(s => s.IsAlly && s.TotalScore > 0 && s.HasRealContribution && s.UnitData != null && (s.IsDominatedSheet || activeParty.Contains(s.UnitData)))
-                .OrderByDescending(s => s.TotalScore)
-                .ToList();
-                
-            var enemies = Main.Tracker.combatStats.Values
+            // On filtre les alliés pour n'afficher que ceux qui ont réellement contribué au combat.
+            // En historique, on n'exige pas la présence dans le groupe actuel (la composition a pu changer).
+            List<UnitCombatStats> allies;
+            if (viewingHistory)
+            {
+                allies = source
+                    .Where(s => s.IsAlly && !s.IsReanimated && s.HasRealContribution)
+                    .OrderByDescending(s => s.TotalScore)
+                    .ToList();
+            }
+            else
+            {
+                // On n'exige plus la présence dans le groupe actif : un PNJ allié temporaire qui combat
+                // à nos côtés et contribue réellement doit apparaître dans le rapport.
+                allies = source
+                    .Where(s => s.IsAlly && !s.IsReanimated && s.TotalScore > 0 && s.HasRealContribution && s.UnitData != null)
+                    .OrderByDescending(s => s.TotalScore)
+                    .ToList();
+            }
+
+            var enemies = source
                 .Where(s => !s.IsAlly && s.TotalScore > 0 && s.HasRealContribution)
                 .OrderByDescending(s => s.TotalScore)
                 .Take(5)
-                .ToList(); 
+                .ToList();
 
             if (enemies.Count < 3)
             {
-                var fallbackEnemies = Main.Tracker.combatStats.Values
+                var fallbackEnemies = source
                     .Where(s => !s.IsAlly && !enemies.Contains(s) && s.HasRealContribution)
                     .OrderByDescending(s => s.DamageTaken)
                     .Take(3 - enemies.Count);
@@ -519,8 +950,17 @@ public class UnitCombatStats
 
         void OnGUI()
         {
+            // Overlay temps réel : dessiné indépendamment du tableau de bord principal.
+            DrawOverlayIfEnabled();
+
+            // Registre de Campagne (écran plein, prioritaire sur le tableau de bord).
+            if (showLedger) { DrawLedgerScreen(); return; }
+
+            // Tableau comparatif du combat (écran plein).
+            if (showCompare) { DrawCompareScreen(); return; }
+
             // CORRECTION UX : On ne fait plus de return si allCombatants.Count == 0
-            if (!showWindow) return; 
+            if (!showWindow) return;
             EnsureUIInitialized();
             
             // Sécurisation de la cible courante
@@ -563,12 +1003,21 @@ public class UnitCombatStats
             Color wotrGold = HexToColor("#C4A265");
             Color wotrDarkSlate = HexToColor("#1F1F24");
 
+            // Teinte d'ambiance selon l'axe Bien/Mal de la fiche affichée (activable dans UMM).
+            Color accent = wotrGold;
+            if (SettingsManager.Current.AlignmentTintEnabled && currentStat != null)
+            {
+                if (currentStat.AlignmentTone == 1) accent = HexToColor("#D9C07A");      // Bien : or lumineux
+                else if (currentStat.AlignmentTone == 2) accent = HexToColor("#8B2E4E"); // Mal : cramoisi sombre
+                else accent = HexToColor("#597F96");                                     // Neutre : ardoise
+            }
+
             DrawProceduralFrame(safeArea, wotrDarkSlate, 2f);
 
             Rect innerGoldRect = new Rect(safeArea.x + 5f, safeArea.y + 5f, safeArea.width - 10f, safeArea.height - 10f);
-            DrawProceduralFrame(innerGoldRect, wotrGold, 1f);
+            DrawProceduralFrame(innerGoldRect, accent, 1f);
 
-            DrawWotRCornerBrackets(innerGoldRect, wotrGold, 2f, 15f);
+            DrawWotRCornerBrackets(innerGoldRect, accent, 2f, 15f);
 
             Rect contentArea = new Rect(safeArea.x + 20f, safeArea.y + 15f, safeArea.width - 40f, safeArea.height - 30f);
 
@@ -591,6 +1040,455 @@ public class UnitCombatStats
             GUI.matrix = originalMatrix;
         }
 		
+		// ============================================================================
+        // REGISTRE DE CAMPAGNE (statistiques cumulées de tout un run)
+        // ============================================================================
+        private void EnsureLedgerRunLoaded()
+        {
+            try
+            {
+                string runId = "default", camp = "";
+                var mc = Game.Instance?.Player?.MainCharacter.Value;
+                if (mc != null)
+                {
+                    if (!string.IsNullOrEmpty(mc.UniqueId)) runId = mc.UniqueId;
+                    camp = mc.CharacterName ?? "";
+                }
+                LedgerManager.EnsureRun(runId, camp);
+            }
+            catch (Exception) { }
+        }
+
+        private void DrawLedgerScreen()
+        {
+            EnsureUIInitialized();
+            Localization.Init(Main.ModPath);
+
+            Rect full = new Rect(0, 0, Screen.width, Screen.height);
+            if (darkBackground != null) GUI.DrawTexture(full, darkBackground);
+            if (overlayTexture == null)
+            {
+                overlayTexture = new Texture2D(1, 1);
+                overlayTexture.SetPixel(0, 0, new Color(0.02f, 0.02f, 0.03f, 0.75f));
+                overlayTexture.Apply();
+            }
+
+            float scale = SettingsManager.Current.UiScale;
+            if (scale < 0.5f || scale > 2.0f) scale = 1.0f;
+            Matrix4x4 orig = GUI.matrix;
+            float vw = (float)Screen.width / scale;
+            float vh = (float)Screen.height / scale;
+            GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(scale, scale, 1f));
+
+            float mx = vw * 0.12f, my = vh * 0.10f;
+            Rect safe = new Rect(mx, my, vw - mx * 2, vh - my * 2);
+            GUI.DrawTexture(safe, overlayTexture);
+            Color gold = HexToColor("#C4A265");
+            Color slate = HexToColor("#1F1F24");
+            DrawProceduralFrame(safe, slate, 2f);
+            Rect inner = new Rect(safe.x + 5f, safe.y + 5f, safe.width - 10f, safe.height - 10f);
+            DrawProceduralFrame(inner, gold, 1f);
+            DrawWotRCornerBrackets(inner, gold, 2f, 15f);
+
+            Rect content = new Rect(safe.x + 25f, safe.y + 20f, safe.width - 50f, safe.height - 40f);
+            GUILayout.BeginArea(content);
+            DrawLedgerContent(content.width, content.height);
+            GUILayout.EndArea();
+
+            GUIStyle expStyle = new GUIStyle(GUI.skin.button) { fontSize = 15 };
+            if (GUI.Button(new Rect(safe.xMax - 425f, safe.y + 15f, 180f, 38f), ledgerResetArmed ? (Localization.GetStringById("ui.ledger.reset_confirm") ?? "Confirm reset?") : (Localization.GetStringById("ui.ledger.reset") ?? "Reset ledger"), expStyle))
+            {
+                if (ledgerResetArmed)
+                {
+                    LedgerManager.ResetCurrent();
+                    lastExportPath = null;
+                    ledgerResetArmed = false;
+                }
+                else
+                {
+                    ledgerResetArmed = true;
+                }
+            }
+            if (GUI.Button(new Rect(safe.xMax - 240f, safe.y + 15f, 180f, 38f), Localization.GetStringById("ui.ledger.export") ?? "Export to .txt", expStyle))
+            {
+                ExportLedgerReport();
+            }
+
+            GUIStyle closeStyle = new GUIStyle(GUI.skin.button) { fontSize = 24, fontStyle = FontStyle.Bold };
+            closeStyle.normal.textColor = new Color(0.6196f, 0.1059f, 0.1059f);
+            if (GUI.Button(new Rect(safe.xMax - 55f, safe.y + 12f, 44f, 44f), "X", closeStyle))
+            {
+                showLedger = false;
+                ledgerResetArmed = false;
+                if (invisibleGlassWall != null) invisibleGlassWall.SetActive(showWindow);
+            }
+
+            GUI.matrix = orig;
+        }
+
+        // ============================================================================
+        // TABLEAU COMPARATIF DU COMBAT (tous les combattants côte à côte)
+        // ============================================================================
+        private void DrawCompareScreen()
+        {
+            EnsureUIInitialized();
+            Localization.Init(Main.ModPath);
+
+            Rect full = new Rect(0, 0, Screen.width, Screen.height);
+            if (darkBackground != null) GUI.DrawTexture(full, darkBackground);
+            if (overlayTexture == null)
+            {
+                overlayTexture = new Texture2D(1, 1);
+                overlayTexture.SetPixel(0, 0, new Color(0.02f, 0.02f, 0.03f, 0.75f));
+                overlayTexture.Apply();
+            }
+
+            float scale = SettingsManager.Current.UiScale;
+            if (scale < 0.5f || scale > 2.0f) scale = 1.0f;
+            Matrix4x4 orig = GUI.matrix;
+            float vw = (float)Screen.width / scale;
+            float vh = (float)Screen.height / scale;
+            GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(scale, scale, 1f));
+
+            float mx = vw * 0.12f, my = vh * 0.10f;
+            Rect safe = new Rect(mx, my, vw - mx * 2, vh - my * 2);
+            GUI.DrawTexture(safe, overlayTexture);
+            Color gold = HexToColor("#C4A265");
+            Color slate = HexToColor("#1F1F24");
+            DrawProceduralFrame(safe, slate, 2f);
+            Rect inner = new Rect(safe.x + 5f, safe.y + 5f, safe.width - 10f, safe.height - 10f);
+            DrawProceduralFrame(inner, gold, 1f);
+            DrawWotRCornerBrackets(inner, gold, 2f, 15f);
+
+            Rect content = new Rect(safe.x + 25f, safe.y + 20f, safe.width - 50f, safe.height - 40f);
+            GUILayout.BeginArea(content);
+            DrawCompareContent(content.width, content.height);
+            GUILayout.EndArea();
+
+            GUIStyle closeStyle = new GUIStyle(GUI.skin.button) { fontSize = 24, fontStyle = FontStyle.Bold };
+            closeStyle.normal.textColor = new Color(0.6196f, 0.1059f, 0.1059f);
+            if (GUI.Button(new Rect(safe.xMax - 55f, safe.y + 12f, 44f, 44f), "X", closeStyle))
+            {
+                showCompare = false;
+                if (invisibleGlassWall != null) invisibleGlassWall.SetActive(showWindow);
+            }
+
+            GUI.matrix = orig;
+        }
+
+        private void DrawCompareContent(float width, float height)
+        {
+            bool showGrades = !SettingsManager.Current.ShowDebriefView;
+            string colTitle = "#C4A265", colText = "#E2D5B5", colSub = "#597F96", colDanger = "#9E1B1B";
+            GUIStyle titleStyle = new GUIStyle(GUI.skin.label) { fontSize = 32, fontStyle = FontStyle.Bold, richText = true };
+            GUIStyle rowStyle = new GUIStyle(GUI.skin.label) { fontSize = 16, richText = true };
+            GUIStyle hdrStyle = new GUIStyle(GUI.skin.label) { fontSize = 14, fontStyle = FontStyle.Bold, richText = true };
+
+            string title = Localization.GetStringById("ui.compare.title") ?? "COMBAT COMPARISON";
+            GUILayout.Label($"<color={colTitle}><b>{title}</b></color>", titleStyle);
+            GUILayout.Space(10);
+
+            if (allCombatants == null || allCombatants.Count == 0)
+            {
+                GUILayout.Label($"<color={colSub}><i>{Localization.GetStringById("ui.compare.empty") ?? "No combatants to compare yet."}</i></color>", new GUIStyle(GUI.skin.label) { fontSize = 18, fontStyle = FontStyle.Italic, richText = true });
+                return;
+            }
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label($"<color={colTitle}>{Localization.GetStringById("ui.ledger.col_name") ?? "Character"}</color>", hdrStyle, GUILayout.Width(width * 0.24f));
+            GUILayout.Label($"<color={colTitle}>{Localization.GetStringById("ui.ledger.col_damage") ?? "Damage"}</color>", hdrStyle, GUILayout.Width(width * 0.13f));
+            GUILayout.Label($"<color={colTitle}>{Localization.GetStringById("ui.ledger.col_healing") ?? "Healing"}</color>", hdrStyle, GUILayout.Width(width * 0.12f));
+            GUILayout.Label($"<color={colTitle}>{Localization.GetStringById("ui.ledger.col_taken") ?? "Taken"}</color>", hdrStyle, GUILayout.Width(width * 0.12f));
+            GUILayout.Label($"<color={colTitle}>{Localization.GetStringById("ui.ledger.col_kills") ?? "Kills"}</color>", hdrStyle, GUILayout.Width(width * 0.08f));
+            GUILayout.Label($"<color={colTitle}>{Localization.GetStringById("ui.compare.col_cc") ?? "CC"}</color>", hdrStyle, GUILayout.Width(width * 0.08f));
+            if (showGrades) GUILayout.Label($"<color={colTitle}>{Localization.GetStringById("ui.ledger.col_best") ?? "Best"}</color>", hdrStyle, GUILayout.Width(width * 0.1f));
+            GUILayout.EndHorizontal();
+
+            Color sepPrev = GUI.color;
+            GUI.color = HexToColor("#3A3A3F");
+            GUILayout.Box(GUIContent.none, GUILayout.Height(1), GUILayout.ExpandWidth(true));
+            GUI.color = sepPrev;
+
+            compareScroll = GUILayout.BeginScrollView(compareScroll, GUILayout.Width(width), GUILayout.Height(Mathf.Max(80f, height - 120f)));
+            foreach (var s in allCombatants)
+            {
+                if (s == null) continue;
+                int cc = s.CC_Paralyzed + s.CC_Stunned + s.CC_Frightened + s.CC_Nauseated + s.CC_Confused + s.CC_Blinded + s.CC_Prone + s.CC_Entangled + s.CC_Exhausted + s.CC_Fatigued + s.CC_Shaken + s.CC_Sickened + s.CC_Asleep + s.CC_Petrified + s.CC_Slowed + s.CC_Staggered + s.CC_Dazed + s.CC_Dazzled + s.CC_Helpless + s.CC_Cowering + s.CC_DeathsDoor;
+                int dmg = s.TotalDamage + s.SummonDamage;
+                int heal = s.HealingDone + s.VampiricHealing;
+                int kills = s.Kills + s.SummonKills;
+                string nameCol = s.IsAlly ? colText : colDanger;
+
+                GUILayout.BeginHorizontal();
+                GUILayout.Label($"<color={nameCol}>{s.Name}</color>", rowStyle, GUILayout.Width(width * 0.24f));
+                GUILayout.Label($"<color={colTitle}>{dmg}</color>", rowStyle, GUILayout.Width(width * 0.13f));
+                GUILayout.Label($"<color={colText}>{heal}</color>", rowStyle, GUILayout.Width(width * 0.12f));
+                GUILayout.Label($"<color={colDanger}>{s.DamageTaken}</color>", rowStyle, GUILayout.Width(width * 0.12f));
+                GUILayout.Label($"<color={colText}>{kills}</color>", rowStyle, GUILayout.Width(width * 0.08f));
+                GUILayout.Label($"<color={colSub}>{cc}</color>", rowStyle, GUILayout.Width(width * 0.08f));
+                if (showGrades) GUILayout.Label($"<color={ColorToHex(GetGradeColor(s.Grade))}><b>{s.Grade}</b></color>", rowStyle, GUILayout.Width(width * 0.1f));
+                GUILayout.EndHorizontal();
+            }
+            GUILayout.EndScrollView();
+        }
+
+        // Export du registre dans un fichier texte lisible (UserSettings/reports/). Sûr pour les sauvegardes.
+        private void ExportLedgerReport()
+        {
+            try
+            {
+                var L = LedgerManager.Current;
+                if (L == null) return;
+                string dir = Path.Combine(Path.Combine(Main.ModPath, "UserSettings"), "reports");
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                string file = Path.Combine(dir, "campaign_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".txt");
+
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine("=== Combat Metrics & Accolades - Campaign Ledger ===");
+                sb.AppendLine("Campaign: " + (L.CampaignName ?? ""));
+                sb.AppendLine("Battles recorded: " + L.TotalCombats);
+                sb.AppendLine("Exported: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
+                sb.AppendLine();
+                sb.AppendLine(string.Format("{0,-24} {1,10} {2,10} {3,10} {4,6} {5,8} {6,6}", "Character", "Damage", "Healing", "Taken", "Kills", "Battles", "Best"));
+                sb.AppendLine(new string('-', 82));
+                foreach (var c in L.Characters.Values.OrderByDescending(x => x.TotalDamage))
+                {
+                    string nm = c.Name ?? "?";
+                    if (nm.Length > 24) nm = nm.Substring(0, 24);
+                    sb.AppendLine(string.Format("{0,-24} {1,10} {2,10} {3,10} {4,6} {5,8} {6,6}", nm, c.TotalDamage, c.TotalHealing, c.TotalDamageTaken, c.TotalKills, c.Combats, c.BestGrade));
+                }
+                var nem = LedgerManager.GetNemesis();
+                if (nem != null && nem.DamageToParty > 0)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("Nemesis: " + nem.Name + " (" + nem.DamageToParty + " dmg to the party, " + nem.KillsOnParty + " kills)");
+                }
+                File.WriteAllText(file, sb.ToString());
+                lastExportPath = file;
+                if (Main.Logger != null) Main.Logger.Log("[CombatMVP] Registre exporté : " + file);
+            }
+            catch (Exception ex)
+            {
+                if (Main.Logger != null) Main.Logger.Error("[CombatMVP] Erreur d'export du registre : " + ex.Message);
+            }
+        }
+
+        private void DrawLedgerContent(float width, float height)
+        {
+            var L = LedgerManager.Current;
+            bool showGrades = !SettingsManager.Current.ShowDebriefView;
+            string colTitle = "#C4A265", colText = "#E2D5B5", colSub = "#597F96", colDanger = "#9E1B1B";
+            GUIStyle titleStyle = new GUIStyle(GUI.skin.label) { fontSize = 32, fontStyle = FontStyle.Bold, richText = true };
+            GUIStyle sub = new GUIStyle(GUI.skin.label) { fontSize = 18, richText = true };
+            GUIStyle rowStyle = new GUIStyle(GUI.skin.label) { fontSize = 17, richText = true };
+            GUIStyle hdrStyle = new GUIStyle(GUI.skin.label) { fontSize = 15, fontStyle = FontStyle.Bold, richText = true };
+
+            string title = Localization.GetStringById("ui.ledger.title") ?? "CAMPAIGN LEDGER";
+            GUILayout.Label($"<color={colTitle}><b>{title}</b></color>", titleStyle);
+
+            string campaign = (L != null && !string.IsNullOrEmpty(L.CampaignName)) ? L.CampaignName : "—";
+            string totalCombatsLbl = Localization.GetStringById("ui.ledger.total_combats") ?? "Battles recorded: {0}";
+            GUILayout.Label($"<color={colSub}>{campaign}</color>   <color={colText}>{string.Format(totalCombatsLbl, L != null ? L.TotalCombats : 0)}</color>", sub);
+            if (L != null && !string.IsNullOrEmpty(L.LastUpdated))
+                GUILayout.Label($"<color={colSub}><i>{L.LastUpdated}</i></color>", new GUIStyle(GUI.skin.label) { fontSize = 13, richText = true });
+            GUILayout.Space(12);
+
+            if (L == null || L.Characters == null || L.Characters.Count == 0)
+            {
+                GUILayout.Label($"<color={colSub}><i>{Localization.GetStringById("ui.ledger.empty") ?? "No campaign data yet — fight some battles!"}</i></color>", sub);
+                return;
+            }
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label($"<color={colTitle}>{Localization.GetStringById("ui.ledger.col_name") ?? "Character"}</color>", hdrStyle, GUILayout.Width(width * 0.20f));
+            GUILayout.Label($"<color={colTitle}>{Localization.GetStringById("ui.ledger.col_damage") ?? "Damage"}</color>", hdrStyle, GUILayout.Width(width * 0.12f));
+            GUILayout.Label($"<color={colTitle}>{Localization.GetStringById("ui.ledger.col_healing") ?? "Healing"}</color>", hdrStyle, GUILayout.Width(width * 0.11f));
+            GUILayout.Label($"<color={colTitle}>{Localization.GetStringById("ui.ledger.col_taken") ?? "Taken"}</color>", hdrStyle, GUILayout.Width(width * 0.12f));
+            GUILayout.Label($"<color={colTitle}>{Localization.GetStringById("ui.ledger.col_kills") ?? "Kills"}</color>", hdrStyle, GUILayout.Width(width * 0.08f));
+            GUILayout.Label($"<color={colTitle}>{Localization.GetStringById("ui.ledger.col_battles") ?? "Battles"}</color>", hdrStyle, GUILayout.Width(width * 0.09f));
+            if (showGrades) GUILayout.Label($"<color={colTitle}>{Localization.GetStringById("ui.ledger.col_top3") ?? "Top 3 grades"}</color>", hdrStyle, GUILayout.Width(width * 0.26f));
+            GUILayout.EndHorizontal();
+
+            Color sepPrev = GUI.color;
+            GUI.color = HexToColor("#3A3A3F");
+            GUILayout.Box(GUIContent.none, GUILayout.Height(1), GUILayout.ExpandWidth(true));
+            GUI.color = sepPrev;
+
+            ledgerScroll = GUILayout.BeginScrollView(ledgerScroll, GUILayout.Width(width), GUILayout.Height(Mathf.Max(80f, height - 190f)));
+            foreach (var c in L.Characters.Values.OrderByDescending(x => x.TotalDamage))
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label($"<color={colText}>{c.Name}</color>", rowStyle, GUILayout.Width(width * 0.20f));
+                GUILayout.Label($"<color={colTitle}>{c.TotalDamage}</color>", rowStyle, GUILayout.Width(width * 0.12f));
+                GUILayout.Label($"<color={colText}>{c.TotalHealing}</color>", rowStyle, GUILayout.Width(width * 0.11f));
+                GUILayout.Label($"<color={colDanger}>{c.TotalDamageTaken}</color>", rowStyle, GUILayout.Width(width * 0.12f));
+                GUILayout.Label($"<color={colText}>{c.TotalKills}</color>", rowStyle, GUILayout.Width(width * 0.08f));
+                GUILayout.Label($"<color={colSub}>{c.Combats}</color>", rowStyle, GUILayout.Width(width * 0.09f));
+                if (showGrades) GUILayout.Label($"<color={colTitle}><b>{BuildTop3Grades(c.GradeCounts)}</b></color>", rowStyle, GUILayout.Width(width * 0.26f));
+                GUILayout.EndHorizontal();
+            }
+            GUILayout.EndScrollView();
+
+            var nem = LedgerManager.GetNemesis();
+            if (nem != null && nem.DamageToParty > 0)
+            {
+                GUILayout.Space(8);
+                string nemLbl = Localization.GetStringById("ui.ledger.nemesis") ?? "Campaign nemesis: {0} — {1} damage to the party, {2} kills";
+                GUILayout.Label($"<color={colDanger}><b>{string.Format(nemLbl, nem.Name, nem.DamageToParty, nem.KillsOnParty)}</b></color>", sub);
+            }
+
+            if (!string.IsNullOrEmpty(lastExportPath))
+            {
+                GUILayout.Space(4);
+                string exportedLbl = Localization.GetStringById("ui.ledger.exported") ?? "Exported to:";
+                GUILayout.Label($"<color=#6D8467><i>{exportedLbl} {lastExportPath}</i></color>", new GUIStyle(GUI.skin.label) { fontSize = 13, richText = true, wordWrap = true });
+            }
+        }
+
+		// ============================================================================
+        // OVERLAY TEMPS RÉEL (compteur "DPS meter" déplaçable et entièrement configurable)
+        // ============================================================================
+        private void DrawOverlayIfEnabled()
+        {
+            var s = SettingsManager.Current;
+            if (s == null || !s.OverlayEnabled || Main.Tracker == null) return;
+            if (s.OverlayCombatOnly && !Main.Tracker.IsInCombat) return;
+
+            if (overlayPixel == null)
+            {
+                overlayPixel = new Texture2D(1, 1);
+                overlayPixel.SetPixel(0, 0, Color.white);
+                overlayPixel.Apply();
+            }
+
+            float sc = Mathf.Clamp(s.OverlayScale, 0.6f, 2.0f);
+            float width = Mathf.Clamp(s.OverlayWidth, 180f, 600f);
+
+            BuildOverlayRows(s);
+
+            float rowH = 22f * sc;
+            float headerH = 26f * sc;
+            float pad = 8f * sc;
+            float height = headerH + pad + Mathf.Max(1, overlayRows.Count) * rowH + pad;
+
+            if (!overlayRectInit)
+            {
+                overlayRect = new Rect(s.OverlayX, s.OverlayY, width, height);
+                overlayRectInit = true;
+            }
+            overlayRect.width = width;
+            overlayRect.height = height;
+            overlayRect.x = Mathf.Clamp(overlayRect.x, 0f, Mathf.Max(0f, Screen.width - 40f));
+            overlayRect.y = Mathf.Clamp(overlayRect.y, 0f, Mathf.Max(0f, Screen.height - 40f));
+
+            Rect newRect = GUI.Window(0x4D5650, overlayRect, DrawOverlayContents, GUIContent.none, GUIStyle.none);
+            if (Math.Abs(newRect.x - overlayRect.x) > 0.5f || Math.Abs(newRect.y - overlayRect.y) > 0.5f)
+            {
+                overlayRect.x = newRect.x;
+                overlayRect.y = newRect.y;
+                overlayPosDirty = true;
+            }
+
+            // Sauvegarde de la position seulement au relâchement de la souris (évite d'écrire chaque frame).
+            if (overlayPosDirty && Input.GetMouseButtonUp(0))
+            {
+                s.OverlayX = overlayRect.x;
+                s.OverlayY = overlayRect.y;
+                SettingsManager.Save();
+                overlayPosDirty = false;
+            }
+        }
+
+        private void BuildOverlayRows(MVPSettings s)
+        {
+            overlayRows.Clear();
+            float elapsed = Main.Tracker.CombatElapsedSeconds;
+            if (s.OverlayMetric == 1) overlayMetricLabel = "DPS";
+            else if (s.OverlayMetric == 2) overlayMetricLabel = Localization.GetStringById("ui.overlay.metric_healing") ?? "Healing";
+            else overlayMetricLabel = Localization.GetStringById("ui.overlay.metric_damage") ?? "Damage";
+
+            foreach (var st in Main.Tracker.combatStats.Values)
+            {
+                if (st == null || st.IsReanimated) continue;
+                bool include;
+                if (s.OverlayMode == 0) include = st.IsAlly;
+                else if (s.OverlayMode == 1) include = true;
+                else include = !string.IsNullOrEmpty(s.OverlayPinnedName) && st.Name != null && st.Name.IndexOf(s.OverlayPinnedName, StringComparison.OrdinalIgnoreCase) >= 0;
+                if (!include) continue;
+
+                float dmg = st.TotalDamage + st.SummonDamage;
+                float val;
+                if (s.OverlayMetric == 1) val = dmg / elapsed;
+                else if (s.OverlayMetric == 2) val = st.HealingDone + st.VampiricHealing;
+                else val = dmg;
+                if (val <= 0.001f) continue;
+
+                overlayRows.Add(new OverlayRow { Name = st.Name ?? "?", Value = val, IsAlly = st.IsAlly });
+            }
+
+            overlayRows.Sort((a, b) => b.Value.CompareTo(a.Value));
+            int max = Mathf.Clamp(s.OverlayMaxRows, 1, 15);
+            if (overlayRows.Count > max) overlayRows.RemoveRange(max, overlayRows.Count - max);
+            float top = overlayRows.Count > 0 ? overlayRows[0].Value : 1f;
+            if (top <= 0f) top = 1f;
+            foreach (var r in overlayRows) r.Frac = Mathf.Clamp01(r.Value / top);
+        }
+
+        private void DrawOverlayContents(int id)
+        {
+            var s = SettingsManager.Current;
+            float sc = Mathf.Clamp(s.OverlayScale, 0.6f, 2.0f);
+            float w = overlayRect.width;
+            float h = overlayRect.height;
+            float rowH = 22f * sc;
+            float headerH = 26f * sc;
+            float pad = 8f * sc;
+            float op = Mathf.Clamp01(s.OverlayOpacity);
+
+            Color prev = GUI.color;
+            GUI.color = new Color(0.04f, 0.04f, 0.055f, op);
+            GUI.DrawTexture(new Rect(0, 0, w, h), overlayPixel);
+            GUI.color = new Color(0.769f, 0.635f, 0.396f, op);
+            GUI.DrawTexture(new Rect(0, 0, w, 1f), overlayPixel);
+            GUI.DrawTexture(new Rect(0, h - 1f, w, 1f), overlayPixel);
+            GUI.DrawTexture(new Rect(0, 0, 1f, h), overlayPixel);
+            GUI.DrawTexture(new Rect(w - 1f, 0, 1f, h), overlayPixel);
+            GUI.color = prev;
+
+            GUIStyle hdr = new GUIStyle(GUI.skin.label) { fontSize = (int)(14 * sc), fontStyle = FontStyle.Bold, richText = true, alignment = TextAnchor.MiddleLeft };
+            string title = Localization.GetStringById("ui.overlay.title") ?? "Combat Meter";
+            GUI.Label(new Rect(pad, 3f, w - pad * 2, headerH), $"<color=#C4A265>{title}</color>  <color=#8C8C8C>[{overlayMetricLabel}]</color>", hdr);
+
+            GUIStyle nameStyle = new GUIStyle(GUI.skin.label) { fontSize = (int)(12 * sc), richText = true, alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Clip };
+            GUIStyle valStyle = new GUIStyle(GUI.skin.label) { fontSize = (int)(12 * sc), fontStyle = FontStyle.Bold, richText = true, alignment = TextAnchor.MiddleRight };
+
+            bool cb = SettingsManager.Current.ColorblindMode;
+            Color allyBar = cb ? new Color(0.306f, 0.475f, 0.655f, op) : new Color(0.427f, 0.518f, 0.404f, op);
+            Color enemyBar = cb ? new Color(0.882f, 0.506f, 0.173f, op) : new Color(0.62f, 0.106f, 0.106f, op);
+            float y = headerH + pad * 0.5f;
+            for (int i = 0; i < overlayRows.Count; i++)
+            {
+                var r = overlayRows[i];
+                float barW = (w - pad * 2) * r.Frac;
+                GUI.color = r.IsAlly ? allyBar : enemyBar;
+                GUI.DrawTexture(new Rect(pad, y, Mathf.Max(0f, barW), rowH - 3f), overlayPixel);
+                GUI.color = prev;
+
+                string valStr = (s.OverlayMetric == 1) ? r.Value.ToString("0.0") : ((int)r.Value).ToString();
+                GUI.Label(new Rect(pad + 4f, y, w - pad * 2 - 62f, rowH - 3f), $"<color=#E2D5B5>{i + 1}. {r.Name}</color>", nameStyle);
+                GUI.Label(new Rect(w - pad - 64f, y, 60f, rowH - 3f), $"<color=#C4A265>{valStr}</color>", valStyle);
+                y += rowH;
+            }
+
+            if (overlayRows.Count == 0)
+            {
+                GUIStyle empty = new GUIStyle(GUI.skin.label) { fontSize = (int)(11 * sc), fontStyle = FontStyle.Italic, richText = true, alignment = TextAnchor.MiddleCenter };
+                GUI.Label(new Rect(pad, headerH, w - pad * 2, rowH), $"<color=#8C8C8C>{Localization.GetStringById("ui.overlay.waiting") ?? "Waiting for combat data..."}</color>", empty);
+            }
+
+            GUI.DragWindow(new Rect(0, 0, w, h));
+        }
+
 		// --- HELPER D'AFFICHAGE DES POURCENTAGES DE TÉLÉMÉTRIE (SÉCURISÉ) ---
         public static string FormatPercentage(float value, float total)
         {
@@ -690,6 +1588,36 @@ public class UnitCombatStats
             }
         }
 
+        // Navigation dans l'historique des combats de la session (parcourir les fiches passées).
+        private void DrawHistoryNav()
+        {
+            if (Main.Tracker == null || Main.Tracker.sessionHistory == null || Main.Tracker.sessionHistory.Count == 0) return;
+            int count = Main.Tracker.sessionHistory.Count;
+
+            string liveLabel = Localization.GetStringById("ui.history.live") ?? "Live combat";
+            string label = (historyIndex >= 0 && historyIndex < count) ? Main.Tracker.sessionHistory[historyIndex].Label : liveLabel;
+
+            GUILayout.Space(8);
+            GUILayout.BeginHorizontal();
+            GUIStyle navBtn = new GUIStyle(GUI.skin.button) { fontSize = 16, fontStyle = FontStyle.Bold };
+            GUIStyle lblStyle = new GUIStyle(GUI.skin.label) { richText = true, fontSize = 15, alignment = TextAnchor.MiddleCenter };
+
+            if (GUILayout.Button("◄", navBtn, GUILayout.Width(30), GUILayout.Height(24)))
+            {
+                int ni = (historyIndex == -1) ? count - 1 : Math.Max(0, historyIndex - 1);
+                if (ni != historyIndex) { historyIndex = ni; RefreshPagination(); }
+            }
+            GUILayout.Label($"<color=#597F96><b>{label}</b></color>", lblStyle, GUILayout.Width(170));
+            if (GUILayout.Button("►", navBtn, GUILayout.Width(30), GUILayout.Height(24)))
+            {
+                int ni;
+                if (historyIndex == -1 || historyIndex >= count - 1) ni = -1;
+                else ni = historyIndex + 1;
+                if (ni != historyIndex) { historyIndex = ni; RefreshPagination(); }
+            }
+            GUILayout.EndHorizontal();
+        }
+
         void DrawBookLayout(float width, float height)
         {
             // 1. Déclaration unique des largeurs de zones pour toute la méthode
@@ -727,10 +1655,15 @@ public class UnitCombatStats
                 ApplySearchFilter();
             }
             GUILayout.EndHorizontal();
+
+            DrawHistoryNav();
+
             GUILayout.Space(15);
 
-            // Début du conteneur de défilement gauche (Scrollbar automatique si débordement d'échelle)
-            leftScrollPosition = GUILayout.BeginScrollView(leftScrollPosition, GUILayout.Width(leftZoneWidth), GUILayout.Height(height - 80));
+            // Début du conteneur de défilement gauche. Barres masquées (GUIStyle.none) tout en
+            // conservant le défilement à la molette. On réserve de la place en bas pour la note épinglée.
+            float gradeReserve = (!SettingsManager.Current.ShowDebriefView) ? 120f : 0f;
+            leftScrollPosition = GUILayout.BeginScrollView(leftScrollPosition, false, false, GUIStyle.none, GUIStyle.none, GUILayout.Width(leftZoneWidth), GUILayout.Height(height - 80 - gradeReserve));
 
             // Si aucune fiche ne correspond à la recherche
             if (filteredCombatants.Count == 0)
@@ -843,7 +1776,17 @@ public class UnitCombatStats
                 }
             }
             
-            GUILayout.Label($"<b><color={colText}>{displayName}</color></b>", new GUIStyle(GUI.skin.label) { fontSize = 42, richText = true });
+            // Adaptation dynamique de la taille du nom : on réduit la police pour qu'un nom long
+            // (ex: "Xaëra, Moissonneuse du Silence") tienne entièrement sur une ligne sans être tronqué.
+            float nameAvailWidth = Mathf.Max(120f, leftZoneWidth - 20f);
+            int nameFontSize = 42;
+            GUIStyle nameSizer = new GUIStyle(GUI.skin.label) { fontSize = 42, fontStyle = FontStyle.Bold, wordWrap = false };
+            Vector2 measuredName = nameSizer.CalcSize(new GUIContent(displayName ?? ""));
+            if (measuredName.x > nameAvailWidth && measuredName.x > 0f)
+            {
+                nameFontSize = Mathf.Clamp((int)(42f * (nameAvailWidth / measuredName.x)), 18, 42);
+            }
+            GUILayout.Label($"<b><color={colText}>{displayName}</color></b>", new GUIStyle(GUI.skin.label) { fontSize = nameFontSize, richText = true, wordWrap = false }, GUILayout.Width(nameAvailWidth));
 
             string subTitle = string.Format(Localization.GetStringById("ui.level_short") ?? "Niveau {0}", currentStat.Level);
             if (currentStat.IsAlly && currentStat.MythicPathName != (Localization.GetStringById("ui.mythic_hero") ?? "Héros Mythique") && !string.IsNullOrEmpty(currentStat.MythicPathName)) 
@@ -890,14 +1833,20 @@ public class UnitCombatStats
             }
             GUILayout.Space(20);
 
-            // Masqué si l'analyse pure est active
+            GUILayout.EndScrollView(); // --- Fin du conteneur de défilement gauche ---
+
+            // Note du personnage ÉPINGLÉE sous le conteneur défilant : toujours visible, sans avoir à scroller.
             if (!SettingsManager.Current.ShowDebriefView)
             {
+                GUILayout.Space(6);
                 GUILayout.Label(Localization.GetStringById("ui.operational_rank") ?? "RANG OPÉRATIONNEL", new GUIStyle(GUI.skin.label) { fontSize = 18, fontStyle = FontStyle.Bold, normal = { textColor = new Color(0.3490f, 0.4980f, 0.5882f) } });
-                GUILayout.Label($"{currentStat.Grade}", new GUIStyle(GUI.skin.label) { fontSize = 72, fontStyle = FontStyle.Bold, normal = { textColor = GetGradeColor(currentStat.Grade) } });
+                GUILayout.Label($"{currentStat.Grade}", new GUIStyle(GUI.skin.label) { fontSize = 60, fontStyle = FontStyle.Bold, wordWrap = false, normal = { textColor = GetGradeColor(currentStat.Grade) } });
+                string rankTitle = GetRankTitle(currentStat.Grade);
+                if (!string.IsNullOrEmpty(rankTitle))
+                {
+                    GUILayout.Label($"<i><color={ColorToHex(GetGradeColor(currentStat.Grade))}>{rankTitle}</color></i>", new GUIStyle(GUI.skin.label) { fontSize = 20, richText = true });
+                }
             }
-            
-            GUILayout.EndScrollView(); // --- NOUVEAU : Fin du conteneur de défilement gauche ---
             GUILayout.EndVertical();
 
             // ================= ZONE DROITE (Stats Détaillées & Succès) =================
@@ -919,7 +1868,7 @@ public class UnitCombatStats
 
             GUILayout.BeginHorizontal();
             GUILayout.BeginVertical(GUILayout.Width(rightZoneWidth * 0.48f));
-            GUILayout.Label(string.Format(Localization.GetStringById("ui.damage_done") ?? " <b>Dégâts Infligés :</b> <color={0}>{1}</color>", colText, currentStat.TotalDamage), statStyle);
+            GUILayout.Label(string.Format(Localization.GetStringById("ui.damage_done") ?? " <b>Dégâts Infligés :</b> <color={0}>{1}</color>", colText, currentStat.TotalDamage + currentStat.SummonDamage), statStyle);
             
             string instaKillText = currentStat.InstaKills > 0 ? string.Format(Localization.GetStringById("ui.instakills_text") ?? " <color=#C4A265><i>(including {0} Instant Fatalities)</i></color>", currentStat.InstaKills) : "";
             GUILayout.Label(string.Format(Localization.GetStringById("ui.kills_title") ?? " <b>Éliminations :</b> <color={0}>{1}</color>{2}{3}", colText, currentStat.Kills, instaKillText, ""), statStyle);
@@ -981,6 +1930,11 @@ public class UnitCombatStats
                 }
 
                 GUILayout.Label(string.Format(Localization.GetStringById("ui.dmg.biggest_hit") ?? "<color={0}>Maximum Single Hit: {1}</color>", colSub, currentStat.MaxSingleHit), detailStyle);
+
+                if (currentStat.MaxBurstDamage > currentStat.MaxSingleHit)
+                {
+                    GUILayout.Label(string.Format(Localization.GetStringById("ui.dmg.biggest_burst") ?? "<color={0}>Biggest burst (6s): {1}</color>", colSub, currentStat.MaxBurstDamage), detailStyle);
+                }
 
                 if (currentStat.SneakAttackDmg > 0)
                 {
@@ -1109,14 +2063,6 @@ public class UnitCombatStats
                     GUILayout.Label($"  • <color={colText}>{deathSpellsLabel}</color> <color={colTitle}><b>{currentStat.IconicSpellsCast}</b></color>", detailStyle);
                 }
 
-                if (currentStat.SummonDamage > 0 || currentStat.SummonKills > 0)
-                {
-                    string summonsLabel = Localization.GetStringById("ui.telemetry.summons_label") ?? "Summons:";
-                    string dmgShortLabel = Localization.GetStringById("ui.telemetry.damage_short_label") ?? "damage";
-                    string killsShortLabel = Localization.GetStringById("ui.telemetry.kills_short_label") ?? "kills";
-                    GUILayout.Label($"  • <color={colText}>{summonsLabel}</color> <color={colSub}>{currentStat.SummonDamage} {dmgShortLabel} | {currentStat.SummonKills} {killsShortLabel}</color>", detailStyle);
-                }
-
                 if (totalCC > 0)
                 {
                     string ccDetails = "";
@@ -1140,6 +2086,133 @@ public class UnitCombatStats
                     
                     GUILayout.Label($"  • <color={colText}><b>{ccAppliedLabel} {totalCC}</b></color>", detailStyle);
                     GUILayout.Label($"    <color={colSub}><i>{detailsPrefix} {ccDetails}</i></color>", detailStyle);
+                }
+            }
+
+            // --- SECTION 5 : SOUS-ENSEMBLE DÉDIÉ AUX INVOCATIONS (FICHE LÉGÈRE) ---
+            var sum = currentStat.Summons;
+            bool drawSummons = sum.HasAny || currentStat.SummonDamage > 0 || currentStat.SummonKills > 0;
+            if (drawSummons)
+            {
+                if (drawOffense || drawDefense || drawSupport || drawMagic) drawBlockSeparator();
+                string summonSectionTitle = Localization.GetStringById("ui.section.summons") ?? "[ SUMMONS ]";
+                GUILayout.Label($"<b><color={colTitle}>{summonSectionTitle}</color></b>", statStyle);
+                GUILayout.Space(4);
+
+                if (currentStat.SummonDamage > 0 || currentStat.SummonKills > 0)
+                {
+                    string sDmg = Localization.GetStringById("ui.summons.damage") ?? "Damage dealt:";
+                    string sKills = Localization.GetStringById("ui.summons.kills") ?? "Kills:";
+                    GUILayout.Label($"  • <color={colText}>{sDmg}</color> <color={colTitle}><b>{currentStat.SummonDamage}</b></color> | <color={colText}>{sKills}</color> <color={colTitle}><b>{currentStat.SummonKills}</b></color>", detailStyle);
+                }
+
+                int sumHeal = sum.HealingDone + sum.VampiricHealing;
+                if (sumHeal > 0)
+                {
+                    string sHeal = Localization.GetStringById("ui.summons.healing") ?? "Healing:";
+                    GUILayout.Label($"  • <color={colText}>{sHeal}</color> <color={colTitle}><b>{sumHeal}</b></color>", detailStyle);
+                }
+
+                if (sum.StatDamage > 0 || sum.NegativeLevels > 0)
+                {
+                    string sDrain = Localization.GetStringById("ui.summons.drain") ?? "Essence drain:";
+                    string sAttr = Localization.GetStringById("ui.telemetry.stat_dmg_label") ?? "Attributes:";
+                    string sLvl = Localization.GetStringById("ui.telemetry.levels_drained_label") ?? "Levels siphoned:";
+                    GUILayout.Label($"  • <color={colText}>{sDrain}</color> {sAttr} <color={colTitle}><b>{sum.StatDamage}</b></color> | {sLvl} <color={colTitle}><b>{sum.NegativeLevels}</b></color>", detailStyle);
+                }
+
+                if (sum.DamageTaken > 0)
+                {
+                    string sTaken = Localization.GetStringById("ui.summons.damage_taken") ?? "Damage taken:";
+                    string sPhys = string.Format(Localization.GetStringById("ui.telemetry.damage_physical_label") ?? "including {0} physical", sum.PhysicalDmgTaken);
+                    GUILayout.Label($"  • <color={colText}>{sTaken}</color> <color={colDanger}><b>{sum.DamageTaken}</b></color> ({sPhys})", detailStyle);
+                }
+
+                int sumAttacksDirected = sum.HitsPhysicalTaken + sum.AttacksDodged;
+                if (sumAttacksDirected > 0)
+                {
+                    string sEva = Localization.GetStringById("ui.summons.evasion") ?? "Attacks evaded:";
+                    GUILayout.Label($"  • <color={colText}>{sEva}</color> <color={colTitle}><b>{sum.AttacksDodged} / {sumAttacksDirected}</b></color>", detailStyle);
+                }
+
+                if (sum.TimesDowned > 0)
+                {
+                    string sDowned = string.Format(Localization.GetStringById("ui.summons.downed") ?? "Summons downed: {0}", sum.TimesDowned);
+                    GUILayout.Label($"  • <color={colDanger}>{sDowned}</color>", detailStyle);
+                }
+
+                int sumSavesFailed = sum.SavesFortFailed + sum.SavesRefFailed + sum.SavesWillFailed;
+                if (sumSavesFailed > 0)
+                {
+                    string sSaves = Localization.GetStringById("ui.summons.saves_failed") ?? "Saves failed (F/R/W):";
+                    GUILayout.Label($"  • <color={colText}>{sSaves}</color> <color={colSub}>{sum.SavesFortFailed} / {sum.SavesRefFailed} / {sum.SavesWillFailed}</color>", detailStyle);
+                }
+
+                if (sum.SufferedDebuffs.Count > 0)
+                {
+                    string sDebuffs = Localization.GetStringById("ui.summons.debuffs") ?? "Afflictions suffered:";
+                    string debuffList = string.Join(", ", sum.SufferedDebuffs);
+                    GUILayout.Label($"  • <color={colText}>{sDebuffs}</color> <color={colSub}>{debuffList}</color>", detailStyle);
+                }
+            }
+
+            // --- BLOC DES SERVITEURS RÉANIMÉS (consolidés sur la fiche du maître réanimateur) ---
+            if (currentStat.UnitData != null && Main.Tracker != null && !string.IsNullOrEmpty(currentStat.UnitData.UniqueId))
+            {
+                string masterId = currentStat.UnitData.UniqueId;
+                var thralls = Main.Tracker.combatStats.Values
+                    .Where(s => s.IsReanimated && s.ReanimatorUniqueId == masterId)
+                    .OrderByDescending(s => s.TotalDamage + s.SummonDamage)
+                    .ToList();
+
+                if (thralls.Count > 0)
+                {
+                    if (drawOffense || drawDefense || drawSupport || drawMagic || drawSummons) drawBlockSeparator();
+                    string reanimTitle = Localization.GetStringById("ui.section.reanimated") ?? "[ REANIMATED THRALLS ]";
+                    GUILayout.Label($"<b><color={colTitle}>{reanimTitle}</color></b>", statStyle);
+                    GUILayout.Space(4);
+
+                    int totalThrallDmg = thralls.Sum(t => t.TotalDamage + t.SummonDamage);
+                    int totalThrallKills = thralls.Sum(t => t.Kills + t.SummonKills);
+                    int totalThrallTaken = thralls.Sum(t => t.DamageTaken);
+                    string summaryLbl = Localization.GetStringById("ui.reanimated.summary") ?? "Risen servants: {0} | Damage dealt: {1} | Kills: {2} | Damage taken: {3}";
+                    GUILayout.Label($"  • <color={colText}>{string.Format(summaryLbl, thralls.Count, totalThrallDmg, totalThrallKills, totalThrallTaken)}</color>", detailStyle);
+                    GUILayout.Space(2);
+
+                    string dmgWord = Localization.GetStringById("ui.reanimated.dmg_word") ?? "dmg";
+                    string killsWord = Localization.GetStringById("ui.reanimated.kills_word") ?? "kills";
+                    string takenWord = Localization.GetStringById("ui.reanimated.taken_word") ?? "taken";
+                    foreach (var t in thralls)
+                    {
+                        int tDmg = t.TotalDamage + t.SummonDamage;
+                        int tKills = t.Kills + t.SummonKills;
+                        string line = $"      <color={colSub}>-</color> <color={colText}>{t.Name}</color> : <color={colTitle}><b>{tDmg}</b></color> {dmgWord}";
+                        if (tKills > 0) line += $" | <color={colTitle}><b>{tKills}</b></color> {killsWord}";
+                        if (t.DamageTaken > 0) line += $" | <color={colDanger}>{t.DamageTaken}</color> {takenWord}";
+                        GUILayout.Label(line, detailStyle);
+                    }
+                }
+            }
+
+            // --- BLOC DES DISSIPATIONS (visible uniquement si le personnage a dissipé au moins un effet) ---
+            if (currentStat.DispelledCount > 0)
+            {
+                if (drawOffense || drawDefense || drawSupport || drawMagic || drawSummons) drawBlockSeparator();
+                string dispelTitle = Localization.GetStringById("ui.section.dispels") ?? "[ DISPELS ]";
+                GUILayout.Label($"<b><color={colTitle}>{dispelTitle}</color></b>", statStyle);
+                GUILayout.Space(4);
+
+                string dispelCountLabel = string.Format(Localization.GetStringById("ui.dispels.count") ?? "Effects dispelled: {0}", currentStat.DispelledCount);
+                GUILayout.Label($"  • <color={colText}>{dispelCountLabel}</color>", detailStyle);
+
+                if (currentStat.DispelledSpells.Count > 0)
+                {
+                    string dispelList = string.Join(", ", currentStat.DispelledSpells
+                        .OrderByDescending(kvp => kvp.Value)
+                        .Select(kvp => kvp.Value > 1
+                            ? $"<color={colText}>{kvp.Key}</color> <color={colTitle}><b>(x{kvp.Value})</b></color>"
+                            : $"<color={colText}>{kvp.Key}</color>"));
+                    GUILayout.Label($"    <color={colSub}>{dispelList}</color>", detailStyle);
                 }
             }
 
@@ -1196,7 +2269,8 @@ public class UnitCombatStats
             if (!SettingsManager.Current.ShowDebriefView)
             {
                 // --- VUE A : ACCOLADES TRADITIONNELLES ---
-                var topAchievements = currentStat.Achievements.OrderByDescending(a => a.Weight).Take(15).ToList();
+                // Anti-overdose : on ne met en avant que les 3 hauts faits les plus prestigieux.
+                var topAchievements = currentStat.Achievements.OrderByDescending(a => a.Weight).Take(3).ToList();
                 if (topAchievements.Count == 0)
                 {
                     GUILayout.Label($"<color={colSub}><i>{Localization.GetStringById("ui.misc.no_feats") ?? "Aucun fait d'armes marquant durant cet engagement."}</i></color>", detailStyle);
@@ -1376,13 +2450,45 @@ public class UnitCombatStats
 
         string ColorToHex(Color c) { return "#" + ColorUtility.ToHtmlStringRGB(c); }
 
+        // Titre évocateur associé à la note (ton dark-fantasy Owlcat, jamais frustrant même en bas de l'échelle).
+        string GetRankTitle(string grade)
+        {
+            if (string.IsNullOrEmpty(grade)) return "";
+            if (grade == "SSS+") return Localization.GetStringById("ui.rank.apotheosis") ?? "Apotheosis";
+            if (grade.StartsWith("SSS")) return Localization.GetStringById("ui.rank.legend") ?? "Legend";
+            if (grade.StartsWith("SS")) return Localization.GetStringById("ui.rank.paragon") ?? "Paragon";
+            if (grade.StartsWith("S")) return Localization.GetStringById("ui.rank.hero") ?? "Hero";
+            if (grade.StartsWith("A")) return Localization.GetStringById("ui.rank.veteran") ?? "Veteran";
+            if (grade.StartsWith("B")) return Localization.GetStringById("ui.rank.seasoned") ?? "Seasoned";
+            if (grade.StartsWith("C")) return Localization.GetStringById("ui.rank.initiate") ?? "Initiate";
+            if (grade.StartsWith("D")) return Localization.GetStringById("ui.rank.recruit") ?? "Recruit";
+            if (grade.StartsWith("R")) return Localization.GetStringById("ui.rank.reservist") ?? "Reservist";
+            return Localization.GetStringById("ui.rank.untested") ?? "Untested";
+        }
+
+        private static readonly string[] s_GradeOrder = { "SSS+", "SSS", "SSS-", "SS+", "SS", "SS-", "S+", "S", "S-", "A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-", "F", "FFF-", "R" };
+        private static int GradeRankValue(string g)
+        {
+            int i = Array.IndexOf(s_GradeOrder, g);
+            return i < 0 ? 999 : i;
+        }
+
+        // Construit le résumé "3 meilleures notes ×occurrences" d'un personnage pour le registre.
+        private string BuildTop3Grades(Dictionary<string, int> gc)
+        {
+            if (gc == null || gc.Count == 0) return "—";
+            var top = gc.Keys.OrderBy(GradeRankValue).Take(3).ToList();
+            return string.Join("  ", top.Select(g => $"{g}<size=13> ×{gc[g]}</size>"));
+        }
+
         Color GetGradeColor(string grade)
         {
+            bool cb = SettingsManager.Current.ColorblindMode;
             if (grade.Contains("S")) return HexToColor("#C4A265"); // Or Royal
             if (grade.Contains("A")) return HexToColor("#597F96"); // Ardoise Neutre
-            if (grade.Contains("B")) return HexToColor("#6D8467"); // Vert Sauge
-            if (grade.Contains("C")) return HexToColor("#6D8467"); // Vert Sauge
-            if (grade.Contains("F")) return HexToColor("#9E1B1B"); // Rouge brique / Sang séché
+            if (grade.Contains("B")) return HexToColor(cb ? "#4E79A7" : "#6D8467"); // Vert Sauge (bleu en mode daltonien)
+            if (grade.Contains("C")) return HexToColor(cb ? "#4E79A7" : "#6D8467"); // Vert Sauge (bleu en mode daltonien)
+            if (grade.Contains("F")) return HexToColor(cb ? "#E1812C" : "#9E1B1B"); // Rouge (orange en mode daltonien)
             if (grade.Contains("R")) return HexToColor("#597F96"); // Ardoise Neutre (Réserve)
             return HexToColor("#E2D5B5"); // Parchemin
         }
@@ -1460,8 +2566,16 @@ public class UnitCombatStats
             return HexToColor("#9E1B1B"); // Rouge brique pour les échecs / faibles grades
         }
     }
-	public class CombatTracker : 
-        IPartyCombatHandler, IGlobalSubscriber, 
+	// Instantané léger d'un combat terminé, conservé en mémoire pour l'historique de session.
+    public class CombatSnapshot
+    {
+        public string Label = "";
+        public string TeamGrade = "";
+        public List<UnitCombatStats> Stats = new List<UnitCombatStats>();
+    }
+
+	public class CombatTracker :
+        IPartyCombatHandler, IGlobalSubscriber,
         IGlobalRulebookHandler<RuleDealDamage>, IGlobalRulebookHandler<RuleHealDamage>, 
         IGlobalRulebookHandler<RuleDealStatDamage>, IGlobalRulebookHandler<RuleAttackRoll>, 
         IGlobalRulebookHandler<RuleDrainEnergy>, IGlobalRulebookHandler<RuleCastSpell>,
@@ -1489,11 +2603,24 @@ public class UnitCombatStats
         }
 		
 		private bool isCombatActive = false;
+        private float combatStartRealtime = 0f;
+        // Accès public en lecture seule pour l'overlay temps réel.
+        public bool IsInCombat => isCombatActive;
+        public float CombatElapsedSeconds => Mathf.Max(0.1f, UnityEngine.Time.realtimeSinceStartup - combatStartRealtime);
         public Dictionary<string, UnitCombatStats> combatStats = new Dictionary<string, UnitCombatStats>();
-        private HashSet<string> deadUnitsThisCombat = new HashSet<string>(); 
+        // Historique des combats de la session (les 20 derniers), pour permettre de reconsulter les fiches passées.
+        public List<CombatSnapshot> sessionHistory = new List<CombatSnapshot>();
+        private int sessionCombatCounter = 0;
+        private HashSet<string> deadUnitsThisCombat = new HashSet<string>();
         public HashSet<string> factionSwappedUnitsThisCombat = new HashSet<string>();
-        private int totalEnemyHPAtStart = 1; 
+        // Allégeance de référence figée par UniqueId (capturée au début du combat / à l'apparition),
+        // afin de détecter de façon fiable les dominations et réanimations survenues en cours de combat.
+        private Dictionary<string, bool> baselineAllegiance = new Dictionary<string, bool>();
+        private int totalEnemyHPAtStart = 1;
         private float totalEnemyCombatWeight = 1f;
+        // Références de l'équipe figées au début du combat, servant à normaliser la menace ennemie.
+        private int totalPartyHPAtStart = 1;
+        private int partySizeAtStart = 1;
 		private Dictionary<string, UnitEntityData> doomedTargets = new Dictionary<string, UnitEntityData>();
 
 		// --- NOTE GLOBALE DE L'ÉQUIPE ---
@@ -1525,6 +2652,178 @@ public class UnitCombatStats
                 return summonPart.Summoner;
             }
             return unit; 
+        }
+
+        private bool IsSummonUnit(UnitEntityData unit)
+        {
+            if (unit == null || unit.IsPet) return false;
+            // Un serviteur réanimé n'est jamais traité comme une invocation générique :
+            // il possède sa propre présentation dédiée.
+            if (IsReanimatedThrall(unit)) return false;
+            var summonPart = unit.Get<UnitPartSummonedMonster>();
+            return summonPart != null && summonPart.Summoner != null;
+        }
+
+        // Signature déterministe d'un serviteur réanimé par la Liche :
+        // créature de type MORT-VIVANT portant un buff de servitude (Repurpose / Doom of Servitude /
+        // Flay for Purpose). Le buff undead permanent est appliqué uniquement APRÈS la mort et le relèvement,
+        // ce qui distingue le serviteur relevé de l'ennemi vivant simplement maudit.
+        private bool IsReanimatedThrall(UnitEntityData unit)
+        {
+            if (unit == null) return false;
+            try
+            {
+                if (unit.Buffs == null) return false;
+                string typeName = (unit.Blueprint?.Type?.name ?? "").ToLower();
+                bool isUndeadType = typeName.Contains("undead");
+                foreach (var b in unit.Buffs)
+                {
+                    string bn = (b?.Blueprint?.name ?? "").ToLower();
+                    if (string.IsNullOrEmpty(bn)) continue;
+                    bool servitude = bn.Contains("repurpose") || bn.Contains("servitude") || bn.Contains("flayforpurpose");
+                    if (!servitude) continue;
+                    // Serviteur RELEVÉ (et non ennemi vivant simplement maudit) : buff undead explicite
+                    // (RepurposeBuffUndead), OU créature devenue de type mort-vivant tout en portant la servitude.
+                    if (bn.Contains("undead") || isUndeadType) return true;
+                }
+            }
+            catch (Exception) { }
+            return false;
+        }
+
+        // Lecture de l'alignement réel de la créature (0 = neutre, 1 = bon, 2 = mauvais).
+        // Sert à teinter l'ambiance de la fiche selon l'axe Bien/Mal.
+        public static int GetAlignmentTone(UnitEntityData unit)
+        {
+            try
+            {
+                if (unit == null || unit.Descriptor == null || unit.Descriptor.Alignment == null) return 0;
+                string a = unit.Descriptor.Alignment.ValueVisible.ToString();
+                if (a.IndexOf("Good", StringComparison.OrdinalIgnoreCase) >= 0) return 1;
+                if (a.IndexOf("Evil", StringComparison.OrdinalIgnoreCase) >= 0) return 2;
+            }
+            catch (Exception) { }
+            return 0;
+        }
+
+        // Résout le lanceur (la Liche) à l'origine de la réanimation, via le contexte du buff de servitude.
+        private UnitEntityData GetReanimator(UnitEntityData unit)
+        {
+            if (unit == null) return null;
+            try
+            {
+                if (unit.Buffs == null) return null;
+                string typeName = (unit.Blueprint?.Type?.name ?? "").ToLower();
+                bool isUndeadType = typeName.Contains("undead");
+                foreach (var b in unit.Buffs)
+                {
+                    string bn = (b?.Blueprint?.name ?? "").ToLower();
+                    if (string.IsNullOrEmpty(bn)) continue;
+                    bool servitude = bn.Contains("repurpose") || bn.Contains("servitude") || bn.Contains("flayforpurpose");
+                    if (servitude && (bn.Contains("undead") || isUndeadType) && b.Context != null && b.Context.MaybeCaster != null)
+                    {
+                        return b.Context.MaybeCaster;
+                    }
+                }
+            }
+            catch (Exception) { }
+            return null;
+        }
+
+        // Détermination robuste de l'allégeance relative à la FACTION DU JOUEUR (et non à un personnage
+        // de référence potentiellement mort ou lui-même dominé). S'appuie sur IsPlayersEnemy d'Owlcat,
+        // qui reflète en temps réel le groupe de combat courant de la créature.
+        private bool IsCurrentlyAlly(UnitEntityData unit)
+        {
+            if (unit == null) return false;
+            if (unit.IsPlayerFaction) return true;
+            // Un serviteur réanimé combat pour la Liche : il est du côté du joueur, quel que soit
+            // l'état exact de sa faction dans le moteur.
+            if (IsReanimatedThrall(unit)) return true;
+            try { return !unit.IsPlayersEnemy; }
+            catch (Exception) { return false; }
+        }
+
+        // Renvoie l'allégeance de référence figée pour une créature. Si aucune référence n'existe encore
+        // (créature observée pour la première fois), on fige son état courant comme référence.
+        private bool GetBaselineAllegiance(UnitEntityData unit, bool currentlyAlly)
+        {
+            if (unit == null) return currentlyAlly;
+            string id = unit.UniqueId;
+            if (string.IsNullOrEmpty(id)) return currentlyAlly;
+            if (baselineAllegiance.TryGetValue(id, out bool baseline)) return baseline;
+            baselineAllegiance[id] = currentlyAlly;
+            return currentlyAlly;
+        }
+
+        private UnitCombatStats GetSummonerStats(UnitEntityData unit)
+        {
+            if (!IsSummonUnit(unit)) return null;
+            var summonPart = unit.Get<UnitPartSummonedMonster>();
+            if (summonPart == null || summonPart.Summoner == null) return null;
+            return GetOrAddStats(summonPart.Summoner, out _);
+        }
+
+        private void AddSavingThrowStats(UnitCombatStats stats, bool isSummon, RuleSavingThrow evt, string sourceName)
+        {
+            if (stats == null || evt == null) return;
+            if (isSummon)
+            {
+                if (!evt.IsPassed)
+                {
+                    stats.Summons.SavesFailed++;
+                    if (evt.Type == SavingThrowType.Fortitude)
+                    {
+                        stats.Summons.SavesFortFailed++;
+                        IncrementSourceCount(stats.Summons.SavesFortFailedSources, sourceName);
+                    }
+                    else if (evt.Type == SavingThrowType.Reflex)
+                    {
+                        stats.Summons.SavesRefFailed++;
+                        IncrementSourceCount(stats.Summons.SavesRefFailedSources, sourceName);
+                    }
+                    else if (evt.Type == SavingThrowType.Will)
+                    {
+                        stats.Summons.SavesWillFailed++;
+                        IncrementSourceCount(stats.Summons.SavesWillFailedSources, sourceName);
+                    }
+                }
+                else
+                {
+                    stats.Summons.SavesSucceeded++;
+                    if (evt.Type == SavingThrowType.Fortitude) stats.Summons.SavesFortSucceeded++;
+                    else if (evt.Type == SavingThrowType.Reflex) stats.Summons.SavesRefSucceeded++;
+                    else if (evt.Type == SavingThrowType.Will) stats.Summons.SavesWillSucceeded++;
+                }
+                return;
+            }
+
+            if (!evt.IsPassed)
+            {
+                stats.SavesFailed++;
+                if (evt.Type == SavingThrowType.Fortitude)
+                {
+                    stats.SavesFortFailed++;
+                    IncrementSourceCount(stats.SavesFortFailedSources, sourceName);
+                }
+                else if (evt.Type == SavingThrowType.Reflex)
+                {
+                    stats.SavesRefFailed++;
+                    IncrementSourceCount(stats.SavesRefFailedSources, sourceName);
+                }
+                else if (evt.Type == SavingThrowType.Will)
+                {
+                    stats.SavesWillFailed++;
+                    IncrementSourceCount(stats.SavesWillFailedSources, sourceName);
+                }
+            }
+            else
+            {
+                stats.SavesSucceeded++;
+                if (evt.Type == SavingThrowType.Fortitude) stats.SavesFortSucceeded++;
+                else if (evt.Type == SavingThrowType.Reflex) stats.SavesRefSucceeded++;
+                else if (evt.Type == SavingThrowType.Will) stats.SavesWillSucceeded++;
+            }
         }
 
 		public static string ExtractMythicPath(UnitEntityData unit, out string internalName)
@@ -1572,19 +2871,16 @@ public class UnitCombatStats
             UnitEntityData trueInitiator = GetTrueInitiator(unit, out isSummonAction);
             if (trueInitiator == null) return null;
 
-            // Unification de la logique d'alliance sous la variable existante "currentlyAlly"
-            var mainChar = Game.Instance.Player.MainCharacter.Value;
-            bool currentlyAlly = trueInitiator.IsPlayerFaction || (mainChar != null && (trueInitiator.IsAlly(mainChar) || !trueInitiator.IsEnemy(mainChar)));
+            // Allégeance courante robuste (relative à la faction du joueur) et comparaison à la
+            // référence figée par UniqueId pour détecter une domination ou une réanimation.
+            bool currentlyAlly = IsCurrentlyAlly(trueInitiator);
+            bool baseline = GetBaselineAllegiance(trueInitiator, currentlyAlly);
+            bool isReanimated = IsReanimatedThrall(trueInitiator);
+            // La réanimation est un basculement d'allégeance déterministe, même si le moteur ne
+            // reflète pas proprement le changement de faction ou réutilise un nouvel UniqueId.
+            bool isSwapped = (baseline != currentlyAlly) || isReanimated;
 
             string name = trueInitiator.CharacterName ?? "Inconnu";
-            
-            // On vérifie si la fiche existe déjà pour comparer le changement d'attitude en temps réel
-            bool isSwapped = false;
-            if (combatStats.ContainsKey(name))
-            {
-                isSwapped = combatStats[name].OriginallyAlly != currentlyAlly;
-            }
-
             string statsKey = isSwapped ? name + " [DOMINATED]" : name;
 
             if (!combatStats.ContainsKey(statsKey))
@@ -1601,16 +2897,24 @@ public class UnitCombatStats
                 combatStats[statsKey] = new UnitCombatStats { 
                     Name = (trueInitiator.IsPet) ? $"{name}{Localization.GetStringById("ui.pet_suffix") ?? " (Familier)"}" : name,
                     UnitData = trueInitiator,
-                    IsAlly = currentlyAlly, 
-                    OriginallyAlly = currentlyAlly, // Enregistré à l'instanciation de la fiche
+                    IsAlly = currentlyAlly,
+                    OriginallyAlly = baseline, // Allégeance de référence figée par UniqueId
                     IsDominatedSheet = isSwapped,
                     Level = trueInitiator.Progression?.CharacterLevel ?? 1,
                     CR = trueInitiator.Blueprint?.CR ?? 1, 
                     MythicPathName = mythic,
                     MythicPathInternalName = mythicInternal, 
                     IsEvil = isEvil,
-                    Gender = trueInitiator.Gender
+                    Gender = trueInitiator.Gender,
+                    IsReanimated = isReanimated,
+                    AlignmentTone = GetAlignmentTone(trueInitiator)
                 };
+
+                if (isReanimated)
+                {
+                    var reanimator = GetReanimator(trueInitiator);
+                    if (reanimator != null) combatStats[statsKey].ReanimatorUniqueId = reanimator.UniqueId;
+                }
             }
             else
             {
@@ -1619,6 +2923,15 @@ public class UnitCombatStats
                 existingStats.IsAlly = currentlyAlly;
                 // Préserve l'état de domination s'il a déjà été acté, ou si une nouvelle bascule survient
                 existingStats.IsDominatedSheet = existingStats.IsDominatedSheet || isSwapped;
+                if (isReanimated)
+                {
+                    existingStats.IsReanimated = true;
+                    if (string.IsNullOrEmpty(existingStats.ReanimatorUniqueId))
+                    {
+                        var reanimator = GetReanimator(trueInitiator);
+                        if (reanimator != null) existingStats.ReanimatorUniqueId = reanimator.UniqueId;
+                    }
+                }
             }
 
             if (combatStats[statsKey].IsDominatedSheet)
@@ -1636,10 +2949,12 @@ public class UnitCombatStats
                 isCombatActive = inCombat;
                 if (inCombat)
                 {
+                    combatStartRealtime = UnityEngine.Time.realtimeSinceStartup;
                     combatStats.Clear();
                     deadUnitsThisCombat.Clear();
                     doomedTargets.Clear();
                     factionSwappedUnitsThisCombat.Clear();
+                    baselineAllegiance.Clear();
                     if (CombatMVP_UI.Instance != null) CombatMVP_UI.Instance.showWindow = false;
                     totalEnemyHPAtStart = 0;
                     totalEnemyCombatWeight = 0f; 
@@ -1648,7 +2963,24 @@ public class UnitCombatStats
                     {
                         currentPartyLevel = mainChar.Progression.CharacterLevel;
                     }
-                    if (currentPartyLevel <= 0) currentPartyLevel = 1; 
+                    if (currentPartyLevel <= 0) currentPartyLevel = 1;
+
+                    // --- RÉFÉRENCES DE L'ÉQUIPE (réservoir de PV et effectif) POUR LA NORMALISATION DE LA MENACE ---
+                    totalPartyHPAtStart = 0;
+                    partySizeAtStart = 1;
+                    try
+                    {
+                        partySizeAtStart = Math.Max(1, Game.Instance.Player.PartyCharacters.Count);
+                        foreach (var pc in Game.Instance.Player.PartyAndPets)
+                        {
+                            if (pc != null && pc.Descriptor != null && !pc.Descriptor.State.IsDead)
+                            {
+                                totalPartyHPAtStart += pc.MaxHP;
+                            }
+                        }
+                    }
+                    catch (Exception) { }
+                    if (totalPartyHPAtStart <= 0) totalPartyHPAtStart = currentPartyLevel * partySizeAtStart * 10;
 
                     // --- SECURISATION DU PRE-BUFFING ---
                     try
@@ -1668,21 +3000,30 @@ public class UnitCombatStats
 
                     foreach (var unit in Game.Instance.State.Units)
                     {
-                        if (unit.IsEnemy(Game.Instance.Player.MainCharacter.Value) && !unit.Descriptor.State.IsDead)
+                        if (unit == null) continue;
+                        // Fige l'allégeance de référence de chaque créature présente à l'ouverture du combat.
+                        if (!string.IsNullOrEmpty(unit.UniqueId))
+                        {
+                            baselineAllegiance[unit.UniqueId] = IsCurrentlyAlly(unit);
+                        }
+
+                        if (!IsCurrentlyAlly(unit) && !unit.Descriptor.State.IsDead)
                         {
                             totalEnemyHPAtStart += unit.MaxHP;
                             int cr = unit.Blueprint?.CR ?? 1;
-                            totalEnemyCombatWeight += unit.MaxHP * (1f + (cr / 5f)); 
+                            totalEnemyCombatWeight += unit.MaxHP * (1f + (cr / 5f));
                         }
                     }
                     if (totalEnemyHPAtStart <= 0) totalEnemyHPAtStart = 1;
                     if (totalEnemyCombatWeight <= 0) totalEnemyCombatWeight = 1f;
                 }
-                else 
+                else
                 {
                     AnalyzeCombatPerformance();
+                    UpdateRunLedger();
+                    CaptureSessionSnapshot();
 #if DEBUG
-                    ExportCombatLogToUMM(); 
+                    ExportCombatLogToUMM();
 #endif
                 }
             }
@@ -1691,6 +3032,151 @@ public class UnitCombatStats
                 Main.Logger.Error("[CombatMVP] Erreur dans HandlePartyCombatStateChanged : " + ex);
             }
         }
+		// Échelle de rang propre aux ennemis, appliquée au score de menace normalisé.
+        // SSS+ ne récompense qu'une domination réelle de la rencontre (dégâts massifs et/ou mises à mort).
+        // Fige les fiches du combat qui vient de se terminer dans l'historique de session (mémoire seulement).
+        private void CaptureSessionSnapshot()
+        {
+            try
+            {
+                var kept = combatStats.Values
+                    .Where(s => s != null && s.HasRealContribution && ((s.IsAlly && !s.IsReanimated) || !s.IsAlly))
+                    .ToList();
+                if (kept.Count == 0) return;
+
+                sessionCombatCounter++;
+                var snap = new CombatSnapshot
+                {
+                    Label = string.Format(Localization.GetStringById("ui.history.combat_label") ?? "Combat #{0} — {1}", sessionCombatCounter, DateTime.Now.ToString("HH:mm")),
+                    TeamGrade = TeamGlobalGrade,
+                    Stats = kept
+                };
+                sessionHistory.Add(snap);
+                while (sessionHistory.Count > 20) sessionHistory.RemoveAt(0);
+            }
+            catch (Exception ex)
+            {
+                Main.Logger.Error("[CombatMVP] Erreur dans CaptureSessionSnapshot : " + ex.Message);
+            }
+        }
+
+        private void UpdateRunLedger()
+        {
+            try
+            {
+                if (!SettingsManager.Current.LedgerEnabled) return;
+                if (combatStats.Count == 0) return;
+
+                string runId = "default";
+                string campaignName = "";
+                try
+                {
+                    var mc = Game.Instance.Player.MainCharacter.Value;
+                    if (mc != null)
+                    {
+                        if (!string.IsNullOrEmpty(mc.UniqueId)) runId = mc.UniqueId;
+                        campaignName = mc.CharacterName ?? "";
+                    }
+                }
+                catch (Exception) { }
+
+                LedgerManager.EnsureRun(runId, campaignName);
+                var ledger = LedgerManager.Current;
+                ledger.TotalCombats++;
+
+                foreach (var stat in combatStats.Values)
+                {
+                    if (stat == null || stat.UnitData == null) continue;
+
+                    int myCC = stat.CC_Paralyzed + stat.CC_Stunned + stat.CC_Frightened + stat.CC_Nauseated + stat.CC_Confused + stat.CC_Blinded + stat.CC_Prone + stat.CC_Entangled + stat.CC_Exhausted + stat.CC_Fatigued + stat.CC_Shaken + stat.CC_Sickened + stat.CC_Asleep + stat.CC_Petrified + stat.CC_Slowed + stat.CC_Staggered + stat.CC_Dazed + stat.CC_Dazzled + stat.CC_Helpless + stat.CC_Cowering + stat.CC_DeathsDoor;
+                    int myDamage = stat.TotalDamage + stat.SummonDamage;
+
+                    if (stat.IsAlly && !stat.IsReanimated)
+                    {
+                        if (!stat.HasRealContribution) continue;
+                        string key = stat.Name ?? "?";
+                        if (!ledger.Characters.TryGetValue(key, out var lc))
+                        {
+                            lc = new LedgerCharacter { Name = key };
+                            ledger.Characters[key] = lc;
+                        }
+                        lc.TotalDamage += myDamage;
+                        lc.TotalHealing += stat.HealingDone + stat.VampiricHealing;
+                        lc.TotalDamageTaken += stat.DamageTaken;
+                        lc.TotalKills += stat.Kills + stat.SummonKills;
+                        lc.TotalCC += myCC;
+                        lc.TimesDowned += stat.TimesDowned;
+                        lc.Combats += 1;
+                        if (stat.MaxSingleHit > lc.MaxSingleHit) lc.MaxSingleHit = stat.MaxSingleHit;
+                        if (stat.TotalScore > lc.BestScore)
+                        {
+                            lc.BestScore = stat.TotalScore;
+                            lc.BestGrade = stat.Grade;
+                        }
+                        if (!string.IsNullOrEmpty(stat.Grade))
+                        {
+                            if (lc.GradeCounts == null) lc.GradeCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+                            lc.GradeCounts.TryGetValue(stat.Grade, out int gc);
+                            lc.GradeCounts[stat.Grade] = gc + 1;
+                        }
+                    }
+                    else if (!stat.IsAlly)
+                    {
+                        if (myDamage <= 0 && stat.Kills <= 0) continue;
+                        string key = stat.Name ?? "?";
+                        if (!ledger.Enemies.TryGetValue(key, out var le))
+                        {
+                            le = new LedgerEnemy { Name = key };
+                            ledger.Enemies[key] = le;
+                        }
+                        le.DamageToParty += myDamage;
+                        le.KillsOnParty += stat.Kills;
+                    }
+                }
+
+                LedgerManager.Save();
+            }
+            catch (Exception ex)
+            {
+                Main.Logger.Error("[CombatMVP] Erreur dans UpdateRunLedger : " + ex.Message);
+            }
+        }
+
+        private string GradeEnemyThreat(UnitCombatStats stat)
+        {
+            float score = stat.TotalScore;
+            if (score >= 300f) return "SSS+";
+            if (score >= 245f) return "SSS";
+            if (score >= 200f) return "SSS-";
+            if (score >= 165f) return "SS+";
+            if (score >= 135f) return "SS";
+            if (score >= 110f) return "SS-";
+            if (score >= 92f)  return "S+";
+            if (score >= 76f)  return "S";
+            if (score >= 62f)  return "S-";
+            if (score >= 50f)  return "A+";
+            if (score >= 40f)  return "A";
+            if (score >= 32f)  return "A-";
+            if (score >= 25f)  return "B+";
+            if (score >= 19f)  return "B";
+            if (score >= 14f)  return "B-";
+            if (score >= 10f)  return "C+";
+            if (score >= 7f)   return "C";
+            if (score >= 4f)   return "C-";
+            if (score >= 2f)   return "D";
+            if (score >= 1f)   return "D-";
+
+            int totalCC = stat.CC_Prone + stat.CC_Paralyzed + stat.CC_Stunned + stat.CC_Frightened +
+                          stat.CC_Shaken + stat.CC_Nauseated + stat.CC_Sickened + stat.CC_Blinded +
+                          stat.CC_Entangled + stat.CC_Confused + stat.CC_Exhausted + stat.CC_Fatigued +
+                          stat.CC_Slowed + stat.CC_Staggered + stat.CC_Petrified + stat.CC_Asleep +
+                          stat.CC_Dazed + stat.CC_Dazzled + stat.CC_Helpless + stat.CC_Cowering + stat.CC_DeathsDoor;
+            bool didSomething = stat.TotalDamage > 0 || stat.SummonDamage > 0 || stat.Kills > 0 ||
+                                stat.SummonKills > 0 || stat.StatDamage > 0 || stat.NegativeLevels > 0 ||
+                                totalCC > 0 || stat.DamageTaken > 0;
+            return didSomething ? "F" : "FFF-";
+        }
+
 		private void AnalyzeCombatPerformance()
         {
             try
@@ -1724,7 +3210,7 @@ public class UnitCombatStats
                 float totalTeamHealing = 0f;
                 int totalTeamCC = 0;
 
-                foreach (var stat in combatStats.Values.Where(s => s.IsAlly))
+                foreach (var stat in combatStats.Values.Where(s => s.IsAlly && !s.IsReanimated))
                 {
                     totalTeamDamage += stat.TotalDamage + stat.SummonDamage;
                     totalTeamHealing += stat.HealingDone + stat.VampiricHealing;
@@ -1735,7 +3221,7 @@ public class UnitCombatStats
                 if (totalTeamHealing <= 0) totalTeamHealing = 1f;
                 if (totalTeamCC <= 0) totalTeamCC = 1;
 
-                int activeAllies = combatStats.Values.Count(s => s.IsAlly);
+                int activeAllies = combatStats.Values.Count(s => s.IsAlly && !s.IsReanimated);
                 float divider = Math.Max(6f, activeAllies); 
                 float baselineEffort = Math.Max(15f, totalTeamDamage / divider);
 
@@ -1757,75 +3243,109 @@ public class UnitCombatStats
                         float supportContribution = stat.WeightedSupportBuffs * 0.5f;
                         if (supportContribution > 40f) supportContribution = 40f;
 
-                        float staticScore = (stat.WeightedKills * 18f) + 
-                                            (stat.StatDamage * 8f) + 
-                                            (stat.NegativeLevels * 15f) + 
-                                            (stat.Crits * 5f) + 
-                                            (stat.WeightedCCs * 4f) + 
-                                            supportContribution; 
+                        // Les critiques sont plafonnés pour éviter qu'un seul stat gonfle artificiellement la note.
+                        float critContribution = Math.Min(stat.Crits * 5f, 50f);
+                        float staticScore = (stat.WeightedKills * 18f) +
+                                            (stat.StatDamage * 8f) +
+                                            (stat.NegativeLevels * 15f) +
+                                            critContribution +
+                                            (stat.WeightedCCs * 4f) +
+                                            supportContribution;
+
+                        // Plafond de la portion "stats brutes" : atteindre le sommet exige une domination
+                        // ÉQUILIBRÉE (part de contribution ratio ET faits d'armes), pas un seul stat exploité.
+                        staticScore = Math.Min(staticScore, 210f);
 
                         stat.TotalScore = damageRatioScore + healingRatioScore + ccRatioScore + staticScore;
                     }
                     else
                     {
-                        // SCORING ENNEMI : Ratio de menace de l'ennemi par rapport à la puissance du groupe (CR / Niveau)
+                        // ============================================================================
+                        // NOTATION DE MENACE ENNEMIE (indépendante des critères alliés)
+                        // ----------------------------------------------------------------------------
+                        // Un ennemi n'est pas jugé sur sa "performance de héros" mais sur la menace
+                        // RÉELLEMENT infligée à l'équipe, normalisée par la robustesse du groupe (PV et
+                        // effectif). Un SSS+ ennemi ne s'obtient qu'en dominant réellement la rencontre :
+                        // dévaster le réservoir de PV du groupe et/ou mettre à terre des personnages.
+                        // ============================================================================
                         float enemyCR = Math.Max(1f, stat.CR);
                         float partyLv = Math.Max(1f, currentPartyLevel);
-                        float threatMultiplier = Mathf.Clamp(enemyCR / partyLv, 0.3f, 3.0f);
+                        float partyHP = Math.Max(1f, totalPartyHPAtStart);
+                        float partySize = Math.Max(1f, partySizeAtStart);
 
-                        float painScore = myTotalDmg * 0.15f; 
-                        float killScore = (stat.Kills + stat.SummonKills) * 150f; 
-                        float ccScore = myTotalCC * 15f; 
-                        float statDrainScore = (stat.StatDamage * 10f) + (stat.NegativeLevels * 25f); 
+                        // 1. AGRESSION : proportion du réservoir de PV total de l'équipe entamée par cet
+                        //    ennemi (100 = a infligé l'équivalent des PV de toute l'équipe). Plafonnée.
+                        float dmgToParty = myTotalDmg; // TotalDamage + SummonDamage (verrou de faction = dégâts au groupe)
+                        float aggression = Mathf.Clamp((dmgToParty / partyHP) * 100f, 0f, 200f);
 
-                        stat.TotalScore = (painScore + killScore + ccScore + statDrainScore) * threatMultiplier;
+                        // 2. LÉTALITÉ : mises à mort de membres de l'équipe. Signal le plus fort, pondéré
+                        //    par l'effectif (un mort dans un petit groupe est plus décisif) + bonus plat.
+                        int enemyKills = stat.Kills + stat.SummonKills;
+                        float killRatio = Mathf.Clamp((float)enemyKills / partySize, 0f, 1f);
+                        float lethality = (killRatio * 220f) + (enemyKills * 35f);
+
+                        // 3. CONTRÔLE & ATTRITION subis par l'équipe (entraves, drain de carac, niveaux négatifs).
+                        float control = (myTotalCC * 7f) + (stat.StatDamage * 4f) + (stat.NegativeLevels * 12f);
+
+                        // 4. MENACE INTRINSÈQUE : un adversaire de CR supérieur au niveau du groupe compte
+                        //    davantage ; un sous-fifre surclassé est plafonné vers le bas.
+                        float crRatio = Mathf.Clamp(enemyCR / partyLv, 0.4f, 2.5f);
+
+                        stat.TotalScore = (aggression + lethality + control) * crRatio;
                     }
 
-                    if (stat.IsAlly && stat.TotalScore > highestScore) 
+                    if (stat.IsAlly && !stat.IsReanimated && stat.TotalScore > highestScore)
                     {
                         highestScore = stat.TotalScore;
-                        absoluteMVP = stat; 
+                        absoluteMVP = stat;
                     }
 
                     // 3. ATTRIBUTION DES PALIERS
                     bool isMinorSkirmish = totalEnemyHPAtStart < (currentPartyLevel * 40);
-                    
-                    // UTILISATION DE LA PROPRIÉTÉ GLOBALE HasRealContribution POUR UNE VÉRIFICATION ÉTANCHE
-                    if (stat.IsAlly && isMinorSkirmish && !stat.HasRealContribution)
+
+                    if (stat.IsAlly)
                     {
-                        stat.Grade = "R"; // Réserve Tactique (Aucune pénalité)
+                        // UTILISATION DE LA PROPRIÉTÉ GLOBALE HasRealContribution POUR UNE VÉRIFICATION ÉTANCHE
+                        if (isMinorSkirmish && !stat.HasRealContribution)
+                        {
+                            stat.Grade = "R"; // Réserve Tactique (Aucune pénalité)
+                        }
+                        else
+                        {
+                            float tierScale = 1f + (currentPartyLevel * 0.02f);
+                            if (stat.TotalScore >= 380f * tierScale) stat.Grade = "SSS+";
+                            else if (stat.TotalScore >= 320f * tierScale) stat.Grade = "SSS";
+                            else if (stat.TotalScore >= 270f * tierScale) stat.Grade = "SSS-";
+                            else if (stat.TotalScore >= 220f * tierScale) stat.Grade = "SS+";
+                            else if (stat.TotalScore >= 190f * tierScale) stat.Grade = "SS";
+                            else if (stat.TotalScore >= 160f * tierScale) stat.Grade = "SS-";
+                            else if (stat.TotalScore >= 130f * tierScale) stat.Grade = "S+";
+                            else if (stat.TotalScore >= 110f * tierScale) stat.Grade = "S";
+                            else if (stat.TotalScore >= 90f * tierScale)  stat.Grade = "S-";
+                            else if (stat.TotalScore >= 75f * tierScale)  stat.Grade = "A+";
+                            else if (stat.TotalScore >= 60f * tierScale)  stat.Grade = "A";
+                            else if (stat.TotalScore >= 50f * tierScale)  stat.Grade = "A-";
+                            else if (stat.TotalScore >= 40f * tierScale)  stat.Grade = "B+";
+                            else if (stat.TotalScore >= 32f * tierScale)  stat.Grade = "B";
+                            else if (stat.TotalScore >= 25f * tierScale)  stat.Grade = "B-";
+                            else if (stat.TotalScore >= 18f * tierScale)  stat.Grade = "C+";
+                            else if (stat.TotalScore >= 12f * tierScale)  stat.Grade = "C";
+                            else if (stat.TotalScore >= 8f * tierScale)   stat.Grade = "C-";
+                            else if (stat.TotalScore >= 5f * tierScale)   stat.Grade = "D+";
+                            else if (stat.TotalScore >= 3f)   stat.Grade = "D";
+                            else if (stat.TotalScore >= 1f)   stat.Grade = "D-";
+                            else if (stat.TotalScore > 0 || stat.TotalDamage > 0 || stat.HealingDone > 0 || stat.DamageTaken > 0) stat.Grade = "F";
+                            else stat.Grade = "FFF-";
+                        }
                     }
                     else
                     {
-                        float tierScale = 1f + (currentPartyLevel * 0.02f);
-                        if (stat.TotalScore >= 350f * tierScale) stat.Grade = "SSS+";
-                        else if (stat.TotalScore >= 300f * tierScale) stat.Grade = "SSS";
-                        else if (stat.TotalScore >= 260f * tierScale) stat.Grade = "SSS-";
-                        else if (stat.TotalScore >= 220f * tierScale) stat.Grade = "SS+";
-                        else if (stat.TotalScore >= 190f * tierScale) stat.Grade = "SS";
-                        else if (stat.TotalScore >= 160f * tierScale) stat.Grade = "SS-";
-                        else if (stat.TotalScore >= 130f * tierScale) stat.Grade = "S+";
-                        else if (stat.TotalScore >= 110f * tierScale) stat.Grade = "S";
-                        else if (stat.TotalScore >= 90f * tierScale)  stat.Grade = "S-";
-                        else if (stat.TotalScore >= 75f * tierScale)  stat.Grade = "A+";
-                        else if (stat.TotalScore >= 60f * tierScale)  stat.Grade = "A";
-                        else if (stat.TotalScore >= 50f * tierScale)  stat.Grade = "A-";
-                        else if (stat.TotalScore >= 40f * tierScale)  stat.Grade = "B+";
-                        else if (stat.TotalScore >= 32f * tierScale)  stat.Grade = "B";
-                        else if (stat.TotalScore >= 25f * tierScale)  stat.Grade = "B-";
-                        else if (stat.TotalScore >= 18f * tierScale)  stat.Grade = "C+";
-                        else if (stat.TotalScore >= 12f * tierScale)  stat.Grade = "C";
-                        else if (stat.TotalScore >= 8f * tierScale)   stat.Grade = "C-";
-                        else if (stat.TotalScore >= 5f * tierScale)   stat.Grade = "D+";
-                        else if (stat.TotalScore >= 3f)   stat.Grade = "D";
-                        else if (stat.TotalScore >= 1f)   stat.Grade = "D-";
-                        else if (stat.TotalScore > 0 || stat.TotalDamage > 0 || stat.HealingDone > 0 || stat.DamageTaken > 0) stat.Grade = "F";
-                        else stat.Grade = "FFF-"; 
+                        stat.Grade = GradeEnemyThreat(stat);
                     }
                 }
 
                 // CALCUL DE LA NOTE GLOBALE DE L'ÉQUIPE (AVEC PONDÉRATION DES PETS ET ÉCHELLE SSS+)
-                var gradedAllies = combatStats.Values.Where(s => s.IsAlly && s.Grade != "R").ToList();
+                var gradedAllies = combatStats.Values.Where(s => s.IsAlly && !s.IsReanimated && s.Grade != "R").ToList();
                 float teamAverageScore = 0f;
                 if (gradedAllies.Count > 0)
                 {
@@ -1932,11 +3452,13 @@ public class UnitCombatStats
                 if (damage <= 0) return;
 
                 // 1. TRACKING DU DÉFENSEUR (Tanking & Tir Allié)
+                bool targetIsSummon = IsSummonUnit(evt.Target);
                 var targetStats = GetOrAddStats(evt.Target, out _);
-                if (targetStats != null) 
+                if (targetStats != null)
                 {
-                    targetStats.DamageTaken += damage; // Accumulation globale (Allié et Ennemi) !
-                    
+                    if (targetIsSummon) targetStats.Summons.DamageTaken += damage;
+                    else targetStats.DamageTaken += damage;
+
                     // Capture ciblée des dégâts physiques reçus (Pour tout le monde : Alliés et Ennemis) !
                     if (evt.DamageBundle != null)
                     {
@@ -1946,7 +3468,8 @@ public class UnitCombatStats
                             if (finalForChunk <= 0) continue;
                             if (dv.Source is Kingmaker.RuleSystem.Rules.Damage.PhysicalDamage)
                             {
-                                targetStats.PhysicalDmgTaken += finalForChunk;
+                                if (targetIsSummon) targetStats.Summons.PhysicalDmgTaken += finalForChunk;
+                                else targetStats.PhysicalDmgTaken += finalForChunk;
                             }
                         }
                     }
@@ -1955,8 +3478,12 @@ public class UnitCombatStats
                     {
                         if (evt.Initiator.IsPlayerFaction && evt.Initiator != evt.Target)
                         {
-                            var initStats = GetOrAddStats(evt.Initiator, out _);
-                            if (initStats != null) initStats.FriendlyFireDmg += damage;
+                            var initStats = GetOrAddStats(evt.Initiator, out bool ffIsSummon);
+                            if (initStats != null)
+                            {
+                                if (ffIsSummon) initStats.Summons.FriendlyFireDmg += damage;
+                                else initStats.FriendlyFireDmg += damage;
+                            }
                         }
                     }
                 }
@@ -2248,16 +3775,25 @@ public class UnitCombatStats
 
                 
 
-                if (isSummon) 
+                if (isSummon)
                 {
                     stats.SummonDamage += damage;
+                    stats.Summons.Damage += damage;
                     stats.WeightedDamageDone += (damage * multiplier) * 0.7f;
                 }
-                else 
+                else
                 {
                     stats.TotalDamage += damage;
-                    stats.WeightedDamageDone += damage * multiplier; 
-                    if (damage > stats.MaxSingleHit) stats.MaxSingleHit = damage; 
+                    stats.WeightedDamageDone += damage * multiplier;
+                    if (damage > stats.MaxSingleHit) stats.MaxSingleHit = damage;
+
+                    // Suivi du plus gros pic de dégâts sur une fenêtre glissante de 6 s (~1 round).
+                    float nowB = UnityEngine.Time.realtimeSinceStartup;
+                    stats.RecentDamageWindow.Add(new KeyValuePair<float, int>(nowB, damage));
+                    stats.RecentDamageWindow.RemoveAll(e => nowB - e.Key > 6f);
+                    int windowSum = 0;
+                    for (int wi = 0; wi < stats.RecentDamageWindow.Count; wi++) windowSum += stats.RecentDamageWindow[wi].Value;
+                    if (windowSum > stats.MaxBurstDamage) stats.MaxBurstDamage = windowSum;
 
                     if (evt.DamageBundle != null && evt.Result > 0)
                     {
@@ -2310,7 +3846,8 @@ public class UnitCombatStats
                 // --- DÉTECTION DU MOMENT EXAC DE LA CHUTE DE L'ALLIÉ ---
                 if (targetStats != null && targetStats.IsAlly && evt.Target.HPLeft <= 0 && (evt.Target.HPLeft + evt.Result) > 0)
                 {
-                    targetStats.TimesDowned++;
+                    if (targetIsSummon) targetStats.Summons.TimesDowned++;
+                    else targetStats.TimesDowned++;
                 }
             }
             catch (Exception ex)
@@ -2336,8 +3873,9 @@ public class UnitCombatStats
 
                 if (evt.Initiator != null)
                 {
-                    var stats = GetOrAddStats(evt.Initiator, out _);
-                    if (stats != null)
+                    var stats = GetOrAddStats(evt.Initiator, out bool initIsSummon);
+                    // La précision offensive des invocations n'est pas fusionnée dans la fiche du maître.
+                    if (stats != null && !initIsSummon)
                     {
                         // Enregistrement de la précision offensive (Tentées vs Touchées)
                         stats.AttacksAttempted++;
@@ -2363,16 +3901,19 @@ public class UnitCombatStats
 
                 if (evt.Target != null)
                 {
+                    bool targetIsSummon = IsSummonUnit(evt.Target);
                     var targetStats = GetOrAddStats(evt.Target, out _);
                     if (targetStats != null)
                     {
                         if (evt.IsHit)
                         {
-                            targetStats.HitsPhysicalTaken++;
+                            if (targetIsSummon) targetStats.Summons.HitsPhysicalTaken++;
+                            else targetStats.HitsPhysicalTaken++;
                         }
                         else
                         {
-                            targetStats.AttacksDodged++;
+                            if (targetIsSummon) targetStats.Summons.AttacksDodged++;
+                            else targetStats.AttacksDodged++;
                         }
                     }
                 }
@@ -2395,10 +3936,11 @@ public class UnitCombatStats
                 int appliedLevels = evt.Result;
                 if (appliedLevels > 0)
                 {
-                    var stats = GetOrAddStats(evt.Initiator, out _);
+                    var stats = GetOrAddStats(evt.Initiator, out bool isSummon);
                     if (stats != null)
                     {
-                        stats.NegativeLevels += appliedLevels;
+                        if (isSummon) stats.Summons.NegativeLevels += appliedLevels;
+                        else stats.NegativeLevels += appliedLevels;
 
                         var negLevelsPart = evt.Target.Get<UnitPartNegativeLevels>();
                         int previousLevels = 0;
@@ -2413,11 +3955,20 @@ public class UnitCombatStats
                             if (!deadUnitsThisCombat.Contains(evt.Target.UniqueId))
                             {
                                 deadUnitsThisCombat.Add(evt.Target.UniqueId);
-                                stats.Kills++;
                                 float multiplier = GetTargetMultiplier(evt.Target);
-                                stats.WeightedKills += 1.5f * multiplier; 
-                                stats.InstaKills++;
-                                stats.EnergyDrainKills++;
+                                if (isSummon)
+                                {
+                                    stats.SummonKills++;
+                                    stats.Summons.Kills++;
+                                    stats.Summons.InstaKills++;
+                                }
+                                else
+                                {
+                                    stats.Kills++;
+                                    stats.InstaKills++;
+                                    stats.EnergyDrainKills++;
+                                }
+                                stats.WeightedKills += 1.5f * multiplier;
 
                                 if (evt.Target.Blueprint != null && evt.Target.Blueprint.CR >= currentPartyLevel)
                                 {
@@ -2466,7 +4017,8 @@ public class UnitCombatStats
                 if (caster != target && !buff.Blueprint.Harmful)
                 {
                     string supportKey = $"{target.UniqueId}_{bName}";
-                    var statsAlly = GetOrAddStats(caster, out _);
+                    var statsAlly = GetOrAddStats(caster, out bool supportCasterIsSummon);
+                    if (supportCasterIsSummon) return;
 
                     if (statsAlly != null && !statsAlly.uniqueInflictedCCs.Contains(supportKey))
                     {
@@ -2495,13 +4047,15 @@ public class UnitCombatStats
                 // --- CAPTURE DES DEBUFFS (EFFETS NÉFASTES) SUBIS PAR UN MEMBRE DU GROUPE ---
                 if (target.IsPlayerFaction && buff.Blueprint.Harmful)
                 {
+                    bool debuffTargetIsSummon = IsSummonUnit(target);
                     var targetStats = GetOrAddStats(target, out _);
                     if (targetStats != null)
                     {
                         string debuffName = buff.Blueprint.Name;
                         if (!string.IsNullOrEmpty(debuffName))
                         {
-                            targetStats.SufferedDebuffs.Add(debuffName);
+                            if (debuffTargetIsSummon) targetStats.Summons.SufferedDebuffs.Add(debuffName);
+                            else targetStats.SufferedDebuffs.Add(debuffName);
                         }
                     }
                 }
@@ -2530,9 +4084,11 @@ public class UnitCombatStats
                 };
 
                 string ccKey = $"{target.UniqueId}_{buffName}";
-                var stats = GetOrAddStats(caster, out _);
+                var stats = GetOrAddStats(caster, out bool casterIsSummon);
                 if (stats == null) return;
-                if (stats.uniqueInflictedCCs.Contains(ccKey)) return; 
+                // Le contrôle de foule appliqué par une invocation n'est pas fusionné dans la fiche du maître.
+                if (casterIsSummon) return;
+                if (stats.uniqueInflictedCCs.Contains(ccKey)) return;
 
                 var descriptor = buff.Blueprint.SpellDescriptor;
                 bool isCC = false;
@@ -2636,27 +4192,36 @@ public class UnitCombatStats
             try
             {
                 // AJOUT CRITIQUE : Ignorer les soins "Fake" (prédictions d'infobulles)
-                if (isCombatActive && !evt.IsFake && evt.Initiator != null && evt.Value > 0) 
+                if (isCombatActive && !evt.IsFake && evt.Initiator != null && evt.Value > 0)
                 {
-                    var stats = GetOrAddStats(evt.Initiator, out _);
+                    var stats = GetOrAddStats(evt.Initiator, out bool isSummon);
                     if (stats != null)
                     {
                         bool isVampiric = false;
                         if (evt.Reason != null && evt.Reason.Context != null && evt.Reason.Context.SourceAbility != null)
                         {
                             string abilityName = evt.Reason.Context.SourceAbility.name.ToLower();
-                            if (abilityName.Contains("vampir") || abilityName.Contains("siphon")) 
+                            if (abilityName.Contains("vampir") || abilityName.Contains("siphon"))
                             {
                                 isVampiric = true;
                             }
                         }
-                        if (isVampiric) stats.VampiricHealing += evt.Value;
-                        else stats.HealingDone += evt.Value;
 
-                        // Évaluation Ange Gardien : PV de la cible inférieurs à 30% lors du déclenchement
-                        if (evt.Target != null && evt.Target.HPLeft > 0 && evt.Target.HPLeft < (evt.Target.MaxHP * 0.3f))
+                        if (isSummon)
                         {
-                            stats.GuardianAngelHealing += evt.Value;
+                            if (isVampiric) stats.Summons.VampiricHealing += evt.Value;
+                            else stats.Summons.HealingDone += evt.Value;
+                        }
+                        else
+                        {
+                            if (isVampiric) stats.VampiricHealing += evt.Value;
+                            else stats.HealingDone += evt.Value;
+
+                            // Évaluation Ange Gardien : PV de la cible inférieurs à 30% lors du déclenchement
+                            if (evt.Target != null && evt.Target.HPLeft > 0 && evt.Target.HPLeft < (evt.Target.MaxHP * 0.3f))
+                            {
+                                stats.GuardianAngelHealing += evt.Value;
+                            }
                         }
                     }
                 }
@@ -2677,22 +4242,32 @@ public class UnitCombatStats
                 if (evt.Initiator == evt.Target || evt.Initiator.IsPlayerFaction == evt.Target.IsPlayerFaction) return; 
 
                 int damageApplied = evt.Result;
-                if (damageApplied > 0) 
+                if (damageApplied > 0)
                 {
-                    var stats = GetOrAddStats(evt.Initiator, out _);
+                    var stats = GetOrAddStats(evt.Initiator, out bool isSummon);
                     if (stats != null)
                     {
-                        stats.StatDamage += damageApplied;
+                        if (isSummon) stats.Summons.StatDamage += damageApplied;
+                        else stats.StatDamage += damageApplied;
                         if (evt.Stat.ModifiedValueRaw < 1 && (evt.Stat.ModifiedValueRaw + damageApplied) >= 1)
                         {
                             if (!deadUnitsThisCombat.Contains(evt.Target.UniqueId))
                             {
                                 deadUnitsThisCombat.Add(evt.Target.UniqueId);
-                                stats.Kills++;
                                 float multiplier = GetTargetMultiplier(evt.Target);
-                                stats.WeightedKills += 1.5f * multiplier; 
-                                stats.InstaKills++; 
-                                stats.StatDamageKills++;
+                                if (isSummon)
+                                {
+                                    stats.SummonKills++;
+                                    stats.Summons.Kills++;
+                                    stats.Summons.InstaKills++;
+                                }
+                                else
+                                {
+                                    stats.Kills++;
+                                    stats.InstaKills++;
+                                    stats.StatDamageKills++;
+                                }
+                                stats.WeightedKills += 1.5f * multiplier;
 
                                 if (evt.Target.Blueprint != null && evt.Target.Blueprint.CR >= currentPartyLevel)
                                 {
@@ -2721,16 +4296,14 @@ public class UnitCombatStats
             {
                 if (!isCombatActive || evt.Initiator == null) return;
                 
-                // --- CAPTURE DES SÉCURITÉS POUR LE DÉBRIEFING (ALLIÉS ET ENNEMIS) ---
-                var statsSec = GetOrAddStats(evt.Initiator, out _);
+                // --- CAPTURE DES SÉCURITÉS POUR LE DÉBRIEFING (ALLIÉS, ENNEMIS ET INVOCATIONS) ---
+                var statsSec = GetOrAddStats(evt.Initiator, out bool secIsSummon);
                 if (statsSec != null)
                 {
+                    string sourceName = null;
                     if (!evt.IsPassed)
                     {
-                        statsSec.SavesFailed++;
-                        
                         // Extraction sécurisée du nom de l'effet d'origine avec cascade de replis pour contrer les chaînes vides ""
-                        string sourceName = null;
                         if (evt.Reason != null)
                         {
                             string candidate = evt.Reason.Name;
@@ -2751,7 +4324,7 @@ public class UnitCombatStats
                                 sourceName = evt.Reason.Context.SourceAbility.Name;
                             }
                         }
-                        
+
                         // Repli de secours sur le buff rattaché au jet de sauvegarde si la raison est restée muette
                         if (string.IsNullOrEmpty(sourceName) && evt.Buff != null)
                         {
@@ -2767,30 +4340,9 @@ public class UnitCombatStats
                         {
                             sourceName = Localization.GetStringById("ui.dmg.other") ?? "Effet inconnu";
                         }
+                    }
 
-                        if (evt.Type == SavingThrowType.Fortitude)
-                        {
-                            statsSec.SavesFortFailed++;
-                            IncrementSourceCount(statsSec.SavesFortFailedSources, sourceName);
-                        }
-                        else if (evt.Type == SavingThrowType.Reflex)
-                        {
-                            statsSec.SavesRefFailed++;
-                            IncrementSourceCount(statsSec.SavesRefFailedSources, sourceName);
-                        }
-                        else if (evt.Type == SavingThrowType.Will)
-                        {
-                            statsSec.SavesWillFailed++;
-                            IncrementSourceCount(statsSec.SavesWillFailedSources, sourceName);
-                        }
-                    }
-                    else
-                    {
-                        statsSec.SavesSucceeded++;
-                        if (evt.Type == SavingThrowType.Fortitude) statsSec.SavesFortSucceeded++;
-                        else if (evt.Type == SavingThrowType.Reflex) statsSec.SavesRefSucceeded++;
-                        else if (evt.Type == SavingThrowType.Will) statsSec.SavesWillSucceeded++;
-                    }
+                    AddSavingThrowStats(statsSec, secIsSummon, evt, sourceName);
                 }
                 
                 var victim = evt.Initiator; 
@@ -3034,6 +4586,11 @@ public class UnitCombatStats
                 {
                     combatStats.Clear();
                 }
+                if (sessionHistory != null)
+                {
+                    sessionHistory.Clear();
+                    sessionCombatCounter = 0;
+                }
                 if (deadUnitsThisCombat != null)
                 {
                     deadUnitsThisCombat.Clear();
@@ -3118,6 +4675,13 @@ public class UnitCombatStats
             try
             {
                 if (!isCombatActive || unit == null) return;
+
+                // Fige l'allégeance de référence des renforts apparus en cours de combat.
+                if (!string.IsNullOrEmpty(unit.UniqueId) && !baselineAllegiance.ContainsKey(unit.UniqueId))
+                {
+                    baselineAllegiance[unit.UniqueId] = IsCurrentlyAlly(unit);
+                }
+
                 var summonPart = unit.Get<Kingmaker.UnitLogic.Parts.UnitPartSummonedMonster>();
                 if (summonPart != null && summonPart.Summoner != null)
                 {
@@ -3141,10 +4705,29 @@ public class UnitCombatStats
             try
             {
                 if (!isCombatActive || evt.Initiator == null || !evt.Success) return;
+                // On ne compte pas les auto-dissipations : retirer une de ses propres conditions via un don
+                // (ex : Délivrance des Contraintes) passe par RuleDispelMagic mais n'est pas une vraie dissipation.
+                if (evt.Target != null && evt.Target == evt.Initiator) return;
                 var stats = GetOrAddStats(evt.Initiator, out _);
                 if (stats != null)
                 {
                     stats.DispelledCount++;
+
+                    string dispelledName = null;
+                    if (evt.Buff != null)
+                    {
+                        dispelledName = evt.Buff.Name;
+                        if (string.IsNullOrEmpty(dispelledName) && evt.Buff.Blueprint != null) dispelledName = evt.Buff.Blueprint.name;
+                    }
+                    if (string.IsNullOrEmpty(dispelledName) && evt.AreaEffect != null && evt.AreaEffect.Blueprint != null)
+                    {
+                        dispelledName = evt.AreaEffect.Blueprint.name;
+                    }
+                    if (string.IsNullOrEmpty(dispelledName))
+                    {
+                        dispelledName = Localization.GetStringById("ui.dmg.other") ?? "Effet inconnu";
+                    }
+                    IncrementSourceCount(stats.DispelledSpells, dispelledName);
                 }
             }
             catch (Exception ex)
@@ -3177,27 +4760,10 @@ public class UnitCombatStats
 
         public void HandleUnitResurrected(UnitEntityData unit)
         {
-            try
-            {
-                if (!isCombatActive || unit == null) return;
-                var activeUnit = Game.Instance.TurnBasedCombatController?.CurrentTurn?.SelectedUnit;
-                if (activeUnit == null)
-                {
-                    activeUnit = Game.Instance.Player.MainCharacter.Value;
-                }
-                if (activeUnit != null)
-                {
-                    var stats = GetOrAddStats(activeUnit, out _);
-                    if (stats != null)
-                    {
-                        stats.ResurrectedCount++;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Main.Logger.Error("[CombatMVP] Erreur dans HandleUnitResurrected : " + ex.Message);
-            }
+            // Le crédit des résurrections est attribué de manière fiable au véritable lanceur dans
+            // OnEventDidTrigger(RuleCastSpell). Ce gestionnaire ne ré-incrémente donc plus le compteur,
+            // ce qui évitait à la fois un double comptage et une attribution à la mauvaise unité
+            // (l'unité sélectionnée / le personnage principal au lieu du soigneur réel).
         }
 
         public void HandleUnitDestroyed(UnitEntityData unit)
@@ -3249,9 +4815,17 @@ public class UnitCombatStats
 
                             if (isInstakill)
                             {
-                                killerStats.InstaKills++;
-                                if (isSummon) killerStats.SummonKills++;
-                                else killerStats.Kills++;
+                                if (isSummon)
+                                {
+                                    killerStats.SummonKills++;
+                                    killerStats.Summons.Kills++;
+                                    killerStats.Summons.InstaKills++;
+                                }
+                                else
+                                {
+                                    killerStats.InstaKills++;
+                                    killerStats.Kills++;
+                                }
 
                                 if (isHighDanger)
                                 {
@@ -3267,7 +4841,11 @@ public class UnitCombatStats
                             }
                             else
                             {
-                                if (isSummon) killerStats.SummonKills++;
+                                if (isSummon)
+                                {
+                                    killerStats.SummonKills++;
+                                    killerStats.Summons.Kills++;
+                                }
                                 else killerStats.Kills++;
 
                                 killerStats.WeightedKills += 1f * GetTargetMultiplier(unit);
@@ -3299,6 +4877,11 @@ public class UnitCombatStats
         {
             if (stat == null) return;
             stat.Achievements.Clear();
+
+            if (category == "Enemy" || !stat.IsAlly || stat.IsReanimated)
+            {
+                return;
+            }
 
             int partyLevel = Main.Tracker != null ? Main.Tracker.currentPartyLevel : 1;
             if (partyLevel <= 0) partyLevel = 1;
@@ -3668,6 +5251,116 @@ public class UnitCombatStats
             {
                 stat.Achievements.Add(new MVPAchievement("S", Localization.GetStringById("ACH_TITLE_50"), Localization.GetFormatted("ACH_DESC_50", stat), Color.white, 99));
             }
+
+            // === LOT DÉDIÉ AU STYLE À UNE MAIN (uniquement si le personnage manie réellement une arme
+            // de mêlée à une main : aucune fausse attribution possible sur un archer, un lanceur, etc.) ===
+            bool ohmFreeHand;
+            string ohmCategory;
+            if (WieldsOneHandedMelee(stat.UnitData, out ohmFreeHand, out ohmCategory))
+            {
+                GrantOneHandedAchievements(stat, partyLevel, ohmFreeHand, ohmCategory, totalPhysical);
+            }
+        }
+
+        // Détection stricte du style "arme de mêlée à une main" : main directrice tenant une arme
+        // ni à distance, ni à deux mains, ni naturelle, et non maintenue à deux mains.
+        private static bool WieldsOneHandedMelee(UnitEntityData unit, out bool freeOffHand, out string catName)
+        {
+            freeOffHand = false;
+            catName = "";
+            try
+            {
+                var w = unit?.Body?.PrimaryHand?.MaybeWeapon;
+                if (w == null || w.Blueprint == null) return false;
+                var t = w.Blueprint.Type;
+                if (t == null) return false;
+                if (t.IsRanged || t.IsTwoHanded || t.IsNatural || t.IsUnarmed) return false;
+                if (!t.IsOneHanded && !t.IsLight) return false;
+                if (w.HoldInTwoHands) return false;
+
+                catName = t.Category.ToString();
+                var sec = unit.Body.SecondaryHand;
+                bool hasShield = sec != null && sec.HasShield;
+                bool hasSecondWeapon = sec != null && sec.HasWeapon;
+                freeOffHand = !hasShield && !hasSecondWeapon;
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        // Les 50 hauts faits du bretteur à une main (A+ jusqu'à SSS+). Le cap d'affichage (top 3 par poids)
+        // garantit qu'on ne voit que les plus prestigieux réellement mérités : jamais d'overdose.
+        private static void GrantOneHandedAchievements(UnitCombatStats stat, int pL, bool freeOffHand, string catName, long totalPhysical)
+        {
+            int td = stat.TotalDamage;
+            int acc = stat.AttacksAttempted > 0 ? (int)((long)stat.AttacksLanded * 100 / stat.AttacksAttempted) : 0;
+            int directed = stat.HitsPhysicalTaken + stat.AttacksDodged;
+            bool isAldori = !string.IsNullOrEmpty(catName) && catName.IndexOf("dueling", StringComparison.OrdinalIgnoreCase) >= 0;
+            string[] finesseCats = { "rapier", "estoc", "dagger", "shortsword", "kukri", "starknife", "sickle", "dueling", "scimitar" };
+            bool isFinesse = false;
+            if (!string.IsNullOrEmpty(catName))
+            {
+                foreach (var fc in finesseCats)
+                {
+                    if (catName.IndexOf(fc, StringComparison.OrdinalIgnoreCase) >= 0) { isFinesse = true; break; }
+                }
+            }
+
+            Action<string, int, int> A = (tier, id, w) => stat.Achievements.Add(new MVPAchievement(tier, Localization.GetStringById("ACH_TITLE_" + id), Localization.GetFormatted("ACH_DESC_" + id, stat), Color.white, w));
+
+            if (freeOffHand && td >= pL * 90 && stat.Crits >= 15 && stat.Kills >= 6 && stat.DamageTaken <= pL * 15) A("SSS+", 51, 100);
+            if (stat.HighDangerKills >= 4 && stat.MaxSingleHit >= pL * 40) A("SSS+", 52, 99);
+            if (stat.AttacksLanded >= 30 && stat.Crits >= 12 && acc >= 80) A("SSS", 53, 98);
+            if (stat.AttacksDodged >= 20 && stat.Kills >= 5 && stat.DamageTaken <= pL * 20) A("SSS", 54, 97);
+            if (td >= pL * 80 && stat.MaxBurstDamage >= pL * 45) A("SSS", 55, 96);
+            if (acc >= 90 && stat.AttacksAttempted >= 20) A("SSS-", 56, 95);
+            if (stat.Kills >= 6 && stat.MaxSingleHit >= pL * 30) A("SSS-", 57, 94);
+            if (isAldori && stat.Crits >= 10 && stat.AttacksDodged >= 12) A("SSS-", 58, 93);
+            if (freeOffHand && directed >= 25 && stat.DamageTaken <= pL * 18) A("SSS-", 59, 92);
+            if (isFinesse && stat.Crits >= 10 && td >= pL * 50) A("SS+", 60, 91);
+            if (stat.AoOs >= 8 && stat.Kills >= 3) A("SS+", 61, 90);
+            if (stat.MaxSingleHit >= pL * 35) A("SS+", 62, 89);
+            if (stat.AttacksLanded >= 25 && acc >= 75) A("SS", 63, 88);
+            if (stat.AttacksDodged >= 15 && stat.DamageTaken <= pL * 25) A("SS", 64, 87);
+            if (stat.HighDangerKills >= 2 && freeOffHand) A("SS", 65, 86);
+            if (stat.Crits >= 10) A("SS-", 66, 85);
+            if (isFinesse && stat.Crits >= 6 && acc >= 80) A("SS-", 67, 84);
+            if (isAldori && stat.AttacksDodged >= 10) A("SS-", 68, 83);
+            if (freeOffHand && td >= pL * 45) A("S+", 69, 82);
+            if (stat.Kills >= 5) A("S+", 70, 81);
+            if (stat.AttacksLanded >= 20) A("S+", 71, 80);
+            if (stat.MaxSingleHit >= pL * 25) A("S", 72, 79);
+            if (stat.AttacksDodged >= 12) A("S", 73, 78);
+            if (isFinesse && td >= pL * 35) A("S", 74, 77);
+            if (td >= pL * 45 && stat.Crits >= 6) A("S", 75, 76);
+            if (stat.AoOs >= 6) A("S-", 76, 75);
+            if (acc >= 80 && stat.AttacksAttempted >= 15) A("S-", 77, 74);
+            if (isAldori && stat.Crits >= 5) A("S-", 78, 73);
+            if (stat.Kills >= 4) A("S-", 79, 72);
+            if (td >= pL * 30) A("A+", 80, 70);
+            if (stat.Crits >= 5) A("A+", 81, 69);
+            if (stat.AttacksDodged >= 8) A("A+", 82, 68);
+            if (stat.MaxSingleHit >= pL * 20) A("A+", 83, 67);
+            if (stat.Kills >= 3) A("A+", 84, 66);
+            if (directed >= 15 && stat.DamageTaken <= pL * 20) A("A+", 85, 65);
+            if (freeOffHand && stat.Crits >= 3) A("A+", 86, 64);
+            if (stat.AttacksLanded >= 15) A("A+", 87, 63);
+            if (isFinesse && stat.Crits >= 3) A("A+", 88, 62);
+            if (totalPhysical >= pL * 50) A("S", 89, 78);
+            if (stat.AttacksDodged >= 18) A("SS-", 90, 84);
+            if (stat.Kills >= 4 && stat.MaxSingleHit >= pL * 25) A("S+", 91, 81);
+            if (td >= pL * 70) A("SSS-", 92, 93);
+            if (stat.HighDangerCrits >= 3) A("SS+", 93, 90);
+            if (stat.DamageTaken == 0 && directed >= 15 && stat.Kills >= 3) A("SSS", 94, 97);
+            if (stat.MaxBurstDamage >= pL * 35) A("SS", 95, 87);
+            if (acc >= 70 && stat.AttacksAttempted >= 12) A("A+", 96, 61);
+            if (stat.MaxSingleHit >= pL * 22) A("S-", 97, 73);
+            if (td >= pL * 25 && stat.Crits >= 4) A("A+", 98, 60);
+            if (stat.Kills >= 2 && freeOffHand) A("A+", 99, 58);
+            if (isAldori && td >= pL * 30) A("A+", 100, 64);
         }
     }
 }

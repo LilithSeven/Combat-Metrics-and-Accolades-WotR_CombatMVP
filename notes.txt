@@ -1,2 +1,15 @@
- - Before, if you opened the UI (Alt + M) before any combat data showed up, the mod just quietly ignored your command. Now the UI always opens when you ask. If there’s no combat data yet, you get a “Empty State” message.
- - Some fixes, for more stats details.
+Version 1.4.0
+
+ - New real time DPS meter overlay. Movable, resizable, tracks whoever you want (toggle with Alt + O).
+ - New Campaign Ledger. Keeps stats for your whole run, picks a campaign nemesis, shows each character's top 3 grades, and exports to a text file (Alt + L).
+ - New combat comparison table, every fighter side by side (Alt + K).
+ - New session history, so you can browse your previous fights and not just the last one.
+ - New dedicated block for reanimated undead thralls (Lich), kept apart from the master's own stats.
+ - New dispel counter that lists the exact spells you dispelled.
+ - 50 new accolades for one handed weapon fighters (duelists, finesse blades, Aldori swordlords).
+ - New rank title on each grade (Apotheosis, Legend, Paragon, and so on).
+ - The interface now tints with the character's alignment (light for Good, dark for Evil), with a colorblind mode option.
+ - Fully customizable keyboard shortcuts and a numeric UI scale, both in the UMM settings page (Ctrl + F10).
+ - Summon, reanimated and domination stats no longer leak into their master or into the party totals.
+ - Reworked enemy grading, and SSS+ is now a real feat to reach.
+ - Localization pass across all 8 languages (official Owlcat terms, proper gender handling).

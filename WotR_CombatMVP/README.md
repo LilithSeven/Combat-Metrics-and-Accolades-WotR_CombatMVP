@@ -1,79 +1,80 @@
 # Combat Metrics & Accolades
 
-An immersive combat scoreboard, detailed metrics tracker, and battle log for Pathfinder: Wrath of the Righteous.
+An immersive combat scoreboard, detailed metrics tracker, and narrative battle log for **Pathfinder: Wrath of the Righteous**.
 
-This mod tracks and organizes every mechanical action your party members, pets, and enemies make in combat.
+This mod captures every mechanical contribution of your companions, pets, and enemies during combat, translating them into tactical grades and unique, context-aware accolades at the end of each encounter.
+
+---
+
+## New in v1.4.0
+
+* **Real-time DPS meter overlay**: a small, movable, resizable window that tracks whoever you choose (allies, everyone, or a pinned character). Toggle with `Alt + O`.
+* **Campaign Ledger**: persistent statistics for your whole run, a campaign nemesis, each character's top 3 grades, and a text export (`Alt + L`). Stored safely in the mod folder, never in your save.
+* **Combat comparison table**: every fighter side by side in one view (`Alt + K`).
+* **Session history**: browse your previous fights, not just the last one.
+* **Reanimated thralls block**: a Lich's risen undead get their own dedicated section, kept apart from the master's own stats.
+* **Named dispel tracking**: lists the exact spells you dispelled.
+* **50 one-handed accolades**: a dedicated set for duelists, finesse blades, and Aldori swordlords, from A+ to SSS+.
+* **Rank titles**: every grade now carries a title (Apotheosis, Legend, Paragon, and so on).
+* **Alignment-tinted UI and colorblind mode**: the frame shifts light for Good and dark for Evil, with an optional colorblind palette.
+* **Customizable shortcuts and numeric UI scale**: all configurable in the UMM settings page (`Ctrl + F10`).
+* **Cleaner stat isolation**: summon, reanimated, and domination stats no longer leak into the master or the party totals. Enemy grading was reworked, and SSS+ is now a genuine feat to reach.
 
 ---
 
 ## Key Features
 
-### 1. Advanced Combat Metrics & Telemetry
-* **Comprehensive Damage Tracking:** Splits damage into categories like slashing, piercing, bludgeoning, energy types, alignment damage (holy, unholy), negative energy, and sneak attacks.
-* **Overkill & Max Hit Detection:** Records exactly how much extra damage you deal to targets already at 0 HP, and points out the hardest hit landed in the fight.
-* **Detailed Healing Records:** Separates regular magical healing from health stolen using vampiric abilities.
-
-### 2. Crowd Control (CC) & Status Tracking
-* **21 Conditions Monitored:** Follows crowd control statuses such as prone, paralyzed, frightened, sickened, blinded, and asleep, making sure credit goes to the right caster.
-* **Aggregated CC Metrics:** Keeps count of all successful status effects your party slaps on enemies.
-
-### 3. Advanced Spell, Maneuver & Death Registry
-* **Instadeath & Attribute Drains:** Logs instant kills from spells like Weird or Phantasmal Killer, tracks negative levels, and notes attribute damage.
-* **Maneuver and Dispel Tracking:** Follows successful maneuvers (like trips) and checks who dispels magic against tough opponents.
-* **Scroll & Resurrection Tracking:** Watches for high-level scroll casts (level 7+) and resurrection spells used mid-battle.
-
-### 4. Dynamic Display Modes: Accolades vs. Tactical Analysis
-You get two views—switch between them with a button at the top:
-* **Battle Accolades View:** Highlights special combat achievements. Over 50 unique accolades can pop up based on how your group fights.
-* **Tactical Analysis View:** Offers a plain, numbers-only dashboard for optimization. No grades, no fancy titles, just raw statistics:
-  * **Offensive Accuracy:** How many physical attacks you attempted vs. landed.
-  * **Defensive Evasion:** How many attacks came your way vs. how many you dodged.
-  * **Failed Saving Throws Registry:** Lists Fortitude, Reflex, and Will saves that failed, showing exactly which spell or effect did it.
-  * **Spell Resistance & Enemy Saves:** Shows which of your spells got shut down by enemy Spell Resistance or successful saves.
-  * **Debuffs Suffered:** Tracks every negative effect your party gets hit with during the fight.
-
-### 5. Smart Ally, Pet & Summon Management
-* **Consolidated Summon Performance:** Damage and kills from temporary summons get rolled into their summoner’s statline, so the screen doesn’t get crowded.
-* **Independent Pet Records:** Permanent animal companions and mythic pets each keep their own folder.
-
-### 6. Domination & Reanimation Isolation
-* **Faction-Swapping Protection:** If someone on your side gets dominated, or you bring an enemy back as a minion (like with the Lich’s Repurpose), their stats go into a separate folder so things don’t get mixed up.
-* **Allied NPC Recognition:** Friendlies or neutral story NPCs (the ones with green circles) get grouped under “Allied Company,” not as enemies.
+* **Real-Time Combat Metrics**: Tracks physical damage types (slashing, piercing, bludgeoning), elemental energies, holy/unholy, precision sneak attacks, healing, and overkills (damage dealt below 0 HP).
+* **Detailed Crowd Control (CC)**: Monitors 21 distinct status conditions (prone, paralyzed, frightened, sickened, blinded, etc.) and attributes them to the correct caster.
+* **Special Death Tracking**: Tracks magical death spells (Weird, Phantasmalkiller), energy drains, and attribute drains, registering them as unique tactical executions.
+* **Adaptive Pet Accolades**: Tailors animal companion accolades (e.g. *The Bow of Cataclysm*, *The Claw of Cataclysm*) dynamically based on their equipped weapon body slots.
+* **Domination & Faction-Swapping Splits**: Automatically splits statistics into separate sheets (e.g., "Hostile" and "Dominated") when a unit changes sides during combat, preventing stat contamination.
+* **Unified Deity Lore**: Correctly resolves and displays religious alignments and deity names in combat accolades without duplicate entries.
+* **Pondrated Pet Scoring**: Evaluates animal companions and summons with a lighter weight (0.25) so they do not drag down your team's global grade.
+* **CR-Relative Threat Scaling**: Adjusts combat scores based on enemy Challenge Rating relative to your active party level, ensuring minor skirmishes do not yield legendary grades.
+* **Dynamic Display Toggle (Tactical Analysis)**: An interactive button has been added to the top of each character's detailed sheet. With a single click, you can switch from the traditional display (fun and immersive accolades) to a rigorous and educational combat analysis.
+* **Contextualized Strategic Advice (50+ Scenarios Handled)**: If a character spent the fight paralyzed, took too much physical damage due to low Armor Class (AC), wasted healing spells, or had their spells blocked by enemy Spell Resistance (SR), the mod provides a precise diagnosis and suggests actionable in-game improvements (feats, gear, or specific protective spells).
+* **Enemy "Threat Report" (Combat Autopsy)**: When viewing the record of a monster or major boss, the Tactical Analysis view transforms into a combat autopsy. It explains exactly why the enemy was so formidable and provides the tactical key to counter them in similar future encounters.
+* **Streamlined UI for Pure Stat Enthusiasts**: Activating the Tactical Analysis view instantly hides all grades, overall team scores, and subjective titles, transforming the interface into a purely statistical, neutral dashboard focused entirely on optimizing party performance.
+* **Persistent Preferences**: The mod automatically saves your latest display choice. If you prefer to play solely with neutral statistical reports, the scoreboard will open directly in this mode for all future combats (safely stored via the settings.json file).
 
 ---
 
-## UI & User Controls
+## Optional Asset Separation (Mythic Backgrounds)
 
-* **Toggle Interface:** Hit Alt + M (or Alt + Space). Alt + M works best; it avoids getting snagged by Windows shortcuts.
-* **Dismiss Interface:** Tap Escape (ESC) or click the red X up top.
-* **Folder Navigation:** Flip through characters using the < and > buttons.
-* **Search Filter:** Use the search bar above the left column to quickly find folders by name or mythic path.
-* **Scroll Support:** Both left and right columns scroll on their own, so stats don’t get cut off on lower-res screens (like Steam Deck) or with bigger fonts.
-* **UI Scale:** Change font and layout size right in the slider (from 0.75x to 1.35x, default is 0.90x).
+To keep download sizes minimal for future code updates, I have decoupled the mythic background images into a separate optional archive:
+How to Install: Extract the contents of "Combat Metrics & Accolades - Mythic Backgrounds (Assets).zip" directly into your main mod directory (next to WotR_CombatMVP.dll and Info.json).
+Customization & Custom Backgrounds: If you wish, you can completely customize the visual experience by using your own images!
+Simply place any 16:9 aspect ratio PNG image in the mod directory and rename it to match the corresponding mythic path (e.g., angel.png, demon.png, lich.png, none.png).
+To ensure that the text remain perfectly readable, I highly recommend using images with a dark, low-opacity background.
 
----
+## How to Use
 
-## Optional Asset Pack (Mythic Backgrounds)
-
-To keep the main mod quick and small, mythic backgrounds are a separate download:
-* **How to Install:** Download "Combat Metrics & Accolades - Mythic Backgrounds (Assets).zip" from GitHub or grab Backgrounds from the Nexus Optional Files tab, then drop the files into the main mod folder (next to WotR_CombatMVP.dll and Info.json).
-* **Customization:** Pop any 16:9 PNG image in the main mod folder and name it after a mythic path (like angel.png, lich.png, none.png) for a custom background. Darker, translucent images work best for reading stats.
+* Open / Close the dashboard: **`Alt + M`** (or `Escape`, or the red **`X`**).
+* Real-time overlay: **`Alt + O`**.
+* Campaign Ledger: **`Alt + L`**.
+* Combat comparison table: **`Alt + K`**.
+* Mod settings (shortcuts, overlay, UI scale, ledger): **`Ctrl + F10`** in the Unity Mod Manager window.
+* Pagination: the **`<`** and **`>`** side buttons, and the history arrows in the top left to browse past fights.
+* Every shortcut is fully customizable in the settings page, and the UI scale accepts a direct numeric value from 0.50 to 2.00.
 
 ---
 
 ## Installation
 
-1. Grab the main .zip archive from Nexus Mods or GitHub.
-2. Unzip it into your game’s Mods folder:
-   Pathfinder Wrath Of The Righteous/Mods/
-   (Make sure the folder’s called exactly Combat Metrics & Accolades)
-3. Or, just drag the .zip right into Unity Mod Manager (UMM).
+1. Download the latest release `.zip` file from Nexus Mods or from the GitHub Releases tab.
+2. Extract the archive into your game's `Mods` folder:
+   `Pathfinder Wrath Of The Righteous/Mods/`
+   *(Ensure the extracted folder is named `Combat Metrics & Accolades`)*
+3. Alternatively, install it directly by dragging and dropping the `.zip` file into the **Unity Mod Manager (UMM)** installer interface.
+
+---
 
 ## Permissions & License
 
-This mod uses a custom Closed Permissions, Open Source license.
-* You can read, study, or decompile the code for your own learning.
-* You’re allowed to make compatibility patches or addons that talk to this mod.
-* Redistributing isn’t allowed. Don’t upload, mirror, or share the mod (or changed versions) anywhere else.
-* Don’t copy or rip off the core scoring logic or the custom UI layout.
-* Check LICENSE.txt for all the legal fine print.
+This mod is released under a custom **Closed Permissions, Open Source** license. 
+* You are welcome to inspect, study, or decompile the source code for personal learning.
+* You may create compatibility patches or addons that interact with this mod.
+* **Redistribution is strictly prohibited**. You may not upload, mirror, or distribute this mod (or modified versions of it) on other platforms.
+* No plagiarism of the core scoring algorithms or custom UI layout is allowed.
+* See `LICENSE.txt` for the full license terms.

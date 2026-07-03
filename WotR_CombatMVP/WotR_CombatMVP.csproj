@@ -7,7 +7,7 @@
     <GamePath>D:\TEST NEW PATHFINDER WOTR\Pathfinder Second Adventure</GamePath>
     <AssemblyName>WotR_CombatMVP</AssemblyName>
     <RootNamespace>WotR_CombatMVP</RootNamespace>
-    <Version>1.3.1</Version>
+    <Version>1.4.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -63,6 +63,9 @@
   <ItemGroup>
     <!-- Exclude reference source snapshots from compile; they are used only for API reference. -->
     <Compile Remove="references_game\**\*.cs" />
+    <!-- Exclude backup/duplicate copies and audit fragments so they never conflict with the real sources. -->
+    <Compile Remove="Trucs liés à Github\**\*.cs" />
+    <Compile Remove=".audit_tmp\**\*.cs" />
   </ItemGroup>
   
   <ItemGroup>
