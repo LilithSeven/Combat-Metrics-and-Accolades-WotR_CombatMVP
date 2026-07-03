@@ -12,22 +12,37 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Télécharge uniquement l'archive normalisée du mod principal (ex: CombatMetricsAccolades-1.3.1.zip)
+          # Telecharge uniquement l'archive normalisee du mod principal (ex: CombatMetricsAccolades-1.4.0.zip)
           gh release download ${{ github.event.release.tag_name }} --pattern "CombatMetricsAccolades-*.zip" --repo ${{ github.repository }} --clobber
           ls *.zip || { echo "No zip asset found in release"; exit 1; }
 
       - name: Get zip filename and version
         run: |
-          # Enregistre le nom exact de l'archive et de la version
+          # Enregistre le nom exact de l'archive et de la version (v1.4.0 -> 1.4.0)
           echo "ZIP_FILE=$(ls CombatMetricsAccolades-*.zip | head -n 1)" >> "$GITHUB_ENV"
           echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
 
+      # L'action Nexus-Mods/upload-action a change d'API : elle attend desormais `file_id`
+      # (l'ID d'un FICHIER deja uploade sur la page du mod, pas l'ancien file_group_id 7504178)
+      # et `category` (ex-`file_category`). Le `file_id` est propre a Nexus : on le trouve via
+      # l'onglet Files > "API Info" de la page du mod, ou dans le menu d'edition de Manage Files.
+      # Renseigne-le dans une variable de depot : Settings > Secrets and variables > Actions >
+      # Variables > New variable, nom `NEXUSMODS_FILE_ID`. Tant qu'elle est vide, l'upload est saute.
       - name: Upload to Nexus Mods
+        if: ${{ vars.NEXUSMODS_FILE_ID != '' }}
         uses: Nexus-Mods/upload-action@main
         with:
           api_key: ${{ secrets.NEXUSMODS_API_KEY }}
-          file_group_id: 7504178
+          file_id: ${{ vars.NEXUSMODS_FILE_ID }}
           filename: ${{ env.ZIP_FILE }}
           version: ${{ env.VERSION }}
           description: ${{ github.event.release.body }}
-          file_category: main
+          category: main
+          archive_existing_version: true
+
+      - name: Nexus upload skipped (not configured)
+        if: ${{ vars.NEXUSMODS_FILE_ID == '' }}
+        run: |
+          echo "Skipping Nexus upload: repository variable NEXUSMODS_FILE_ID is not set."
+          echo "Set it under Settings > Secrets and variables > Actions > Variables (name: NEXUSMODS_FILE_ID)."
+          echo "Find the file id via the Files tab > 'API Info' on the mod page, or the Manage Files edit menu."
